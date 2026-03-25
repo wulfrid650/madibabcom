@@ -1,0 +1,32 @@
+{
+  "name": "mbc-digitization",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/predev-lock.cjs && next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "dev:turbo": "next dev --turbopack",
+    "dev:webpack": "next dev --webpack"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "lucide-react": "^0.562.0",
+    "next": "^16.1.6",
+    "next-auth": "latest",
+    "next-themes": "^0.4.6",
+    "react": "latest",
+    "react-dom": "latest",
+    "recharts": "^2.10.3",
+    "stripe": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "autoprefixer": "latest",
+    "postcss": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  }
+}

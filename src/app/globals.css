@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-madiba-black: #0B0B0B;
+  --color-madiba-red: #C1121F;
+  --color-madiba-gray: #6B7280;
+  --color-madiba-white: #FFFFFF;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+:root {
+  --foreground-rgb: 17, 24, 39;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 255, 255, 255;
+}
+
+body {
+  min-height: 100vh;
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}

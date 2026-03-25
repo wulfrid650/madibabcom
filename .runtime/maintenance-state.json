@@ -1,0 +1,23 @@
+{
+  "manual_mode": "auto",
+  "manual_message": null,
+  "manual_updated_at": null,
+  "manual_updated_by": null,
+  "backend_down_since": null,
+  "last_healthy_at": "2026-03-25T15:59:38.009Z",
+  "last_checked_at": "2026-03-25T15:59:38.009Z",
+  "last_health_status": "healthy",
+  "last_health_error": null,
+  "backend_maintenance_mode": false,
+  "backend_maintenance_message": "Le site est actuellement en maintenance. Nous serons de retour très bientôt !",
+  "cached_snapshot": {
+    "is_maintenance": false,
+    "message": "Le site est actuellement en maintenance. Nous serons de retour très bientôt !",
+    "reason": "available",
+    "backend_down_since": null,
+    "backend_down_minutes": 0,
+    "manual_mode": "auto",
+    "checked_at": "2026-03-25T15:59:38.009Z",
+    "can_admin_bypass": true
+  }
+}
