@@ -65,6 +65,11 @@ export default function MaintenanceAdminPage() {
         return;
       }
 
+      if (result.requires_two_factor) {
+        router.push('/connexion?redirect=/maintenance-admin');
+        return;
+      }
+
       const loggedUser = tokenStorage.getUser();
       const adminAccess = loggedUser?.role === 'admin'
         || loggedUser?.roles?.some((role) => role.slug === 'admin');
@@ -199,6 +204,15 @@ export default function MaintenanceAdminPage() {
                     className="w-full rounded-2xl border border-white/15 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-madiba-red"
                     placeholder="••••••••"
                   />
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-gray-300">
+                  En vous connectant, vous acceptez automatiquement les{' '}
+                  <Link href="/mentions-legales" className="text-red-300 hover:text-white hover:underline">mentions légales</Link>,{' '}
+                  <Link href="/cgv" className="text-red-300 hover:text-white hover:underline">CGV</Link>,{' '}
+                  <Link href="/cgu" className="text-red-300 hover:text-white hover:underline">CGU</Link>{' '}
+                  et la{' '}
+                  <Link href="/privacy-policy" className="text-red-300 hover:text-white hover:underline">politique de confidentialité</Link>.
                 </div>
 
                 <button

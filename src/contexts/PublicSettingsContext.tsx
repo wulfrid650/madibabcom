@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { api } from '@/lib/api';
 
 type PublicSettings = Record<string, any>;
 
@@ -29,15 +30,8 @@ export const PublicSettingsProvider = ({ children }: { children: React.ReactNode
 
     const fetchSettings = async () => {
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-        const response = await fetch(`${API_URL}/public/settings`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data?.success && data?.data) {
-          setSettings(data.data);
-        }
+        const data = await api.getPublicSettings();
+        setSettings(data || {});
       } catch (error) {
         if (controller.signal.aborted) {
           return;

@@ -6,7 +6,11 @@
     "dev": "node scripts/predev-lock.cjs && next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "dev:turbo": "next dev --turbopack",
     "dev:webpack": "next dev --webpack"
   },
@@ -22,11 +26,20 @@
     "stripe": "latest"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "latest",
     "@types/react": "latest",
+    "@vitest/coverage-v8": "^3.2.4",
     "autoprefixer": "latest",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^16.1.6",
+    "jsdom": "^26.1.0",
     "postcss": "latest",
     "tailwindcss": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^3.2.4"
   }
 }

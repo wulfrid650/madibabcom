@@ -1,36 +1,46 @@
 'use client';
 
 import Script from 'next/script';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
 
-interface ReCaptchaContextValue {
+const SETTINGS_TIMEOUT_MS = 5000;
+const ENV_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '';
+
+// Types pour grecaptcha v2
+declare global {
+  interface Grecaptcha {
+    ready: (callback: () => void) => void;
+    render: (
+      container: HTMLElement | string,
+      options: {
+        sitekey: string;
+        callback?: (token: string) => void;
+        'expired-callback'?: () => void;
+        'error-callback'?: () => void;
+        theme?: 'light' | 'dark';
+        size?: 'normal' | 'compact';
+      }
+    ) => number;
+    reset: (widgetId?: number) => void;
+    getResponse: (widgetId?: number) => string;
+  }
+
+  interface Window {
+    grecaptcha?: Grecaptcha;
+  }
+}
+
+interface ReCaptchaSettings {
   isEnabled: boolean;
   siteKey: string;
   protectedForms: string[];
-  executeRecaptcha: (action: string) => Promise<string | null>;
   isLoaded: boolean;
-}
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-const SETTINGS_TIMEOUT_MS = 5000;
-
-// Déclaration du type grecaptcha global
-declare global {
-  interface Window {
-    grecaptcha: {
-      ready: (callback: () => void) => void;
-      execute: (siteKey: string, options: { action: string }) => Promise<string>;
-    };
-  }
 }
 
 function parseProtectedForms(raw: unknown): string[] {
   if (!raw) return [];
-
-  if (Array.isArray(raw)) {
-    return raw.filter((item): item is string => typeof item === 'string');
-  }
-
+  if (Array.isArray(raw)) return raw.filter((item): item is string => typeof item === 'string');
   if (typeof raw === 'string') {
     try {
       const parsed = JSON.parse(raw);
@@ -39,19 +49,17 @@ function parseProtectedForms(raw: unknown): string[] {
       return [];
     }
   }
-
   return [];
 }
 
 /**
- * Hook pour utiliser reCAPTCHA dans les composants.
+ * Hook pour récupérer les paramètres reCAPTCHA depuis l'API.
  */
-export function useReCaptcha() {
-  const [settings, setSettings] = useState<ReCaptchaContextValue>({
-    isEnabled: false,
-    siteKey: '',
-    protectedForms: [],
-    executeRecaptcha: async () => null,
+export function useReCaptchaSettings(): ReCaptchaSettings {
+  const [settings, setSettings] = useState<ReCaptchaSettings>({
+    isEnabled: !!ENV_SITE_KEY,
+    siteKey: ENV_SITE_KEY,
+    protectedForms: ['contact', 'login', 'register'],
     isLoaded: false,
   });
 
@@ -65,54 +73,22 @@ export function useReCaptcha() {
 
     const fetchSettings = async () => {
       try {
-        const response = await fetch(`${API_URL}/public/settings`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const payload = data?.data;
-
-        if (!data?.success || !payload) return;
+        const payload = await api.getPublicSettings();
+        if (!payload) return;
 
         const isEnabled = payload.recaptcha_enabled === true || payload.recaptcha_enabled === '1';
-        const siteKey = payload.recaptcha_site_key || '';
+        const siteKey = payload.recaptcha_site_key || ENV_SITE_KEY;
         const protectedForms = parseProtectedForms(payload.recaptcha_forms);
 
         setSettings({
-          isEnabled,
+          isEnabled: isEnabled && !!siteKey,
           siteKey,
           protectedForms: protectedForms.length > 0 ? protectedForms : ['contact', 'login', 'register'],
-          executeRecaptcha: async (action: string) => {
-            if (!isEnabled || !siteKey) return null;
-
-            try {
-              if (typeof window !== 'undefined' && window.grecaptcha) {
-                return new Promise((resolve) => {
-                  window.grecaptcha.ready(async () => {
-                    try {
-                      const token = await window.grecaptcha.execute(siteKey, { action });
-                      resolve(token);
-                    } catch {
-                      resolve(null);
-                    }
-                  });
-                });
-              }
-            } catch (error) {
-              console.error('reCAPTCHA execution failed:', error);
-            }
-
-            return null;
-          },
           isLoaded: true,
         });
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return;
-        }
-        console.error('Failed to load reCAPTCHA settings:', error);
+      } catch {
+        if (controller.signal.aborted) return;
+        // La BD est inaccessible, on garde les valeurs par défaut (ENV)
       } finally {
         clearTimeout(timeoutId);
         setSettings((prev) => ({ ...prev, isLoaded: true }));
@@ -123,9 +99,7 @@ export function useReCaptcha() {
 
     return () => {
       clearTimeout(timeoutId);
-      if (!controller.signal.aborted) {
-        controller.abort('recaptcha settings cleanup');
-      }
+      if (!controller.signal.aborted) controller.abort('recaptcha settings cleanup');
     };
   }, []);
 
@@ -133,97 +107,100 @@ export function useReCaptcha() {
 }
 
 /**
- * Composant pour charger le script reCAPTCHA.
+ * Charge le script reCAPTCHA v2 globalement (dans le layout).
  */
 export function ReCaptchaScript() {
-  const [siteKey, setSiteKey] = useState<string>('');
-  const [isEnabled, setIsEnabled] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      if (!controller.signal.aborted) {
-        controller.abort('recaptcha script timeout');
-      }
-    }, SETTINGS_TIMEOUT_MS);
-
-    const fetchSettings = async () => {
-      try {
-        const response = await fetch(`${API_URL}/public/settings`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const payload = data?.data;
-
-        if (!data?.success || !payload) return;
-
-        const enabled = payload.recaptcha_enabled === true || payload.recaptcha_enabled === '1';
-        setIsEnabled(enabled);
-        setSiteKey(payload.recaptcha_site_key || '');
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return;
-        }
-        console.error('Failed to load reCAPTCHA settings:', error);
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    };
-
-    fetchSettings();
-
-    return () => {
-      clearTimeout(timeoutId);
-      if (!controller.signal.aborted) {
-        controller.abort('recaptcha script cleanup');
-      }
-    };
-  }, []);
+  const { isEnabled, siteKey } = useReCaptchaSettings();
 
   if (!isEnabled || !siteKey) return null;
 
   return (
     <Script
-      src={`https://www.google.com/recaptcha/api.js?render=${siteKey}`}
+      src="https://www.google.com/recaptcha/api.js"
       strategy="afterInteractive"
     />
   );
 }
 
 /**
- * Badge reCAPTCHA (optionnel, pour afficher l'info de protection).
+ * Widget reCAPTCHA v2 (case à cocher).
+ * À placer dans le formulaire. Appelle onToken(token) quand l'utilisateur valide,
+ * et onToken(null) quand le token expire.
  */
-export function ReCaptchaBadge({ formType }: { formType: string }) {
-  const { isEnabled, protectedForms } = useReCaptcha();
+export function ReCaptchaWidget({
+  formType,
+  onToken,
+  theme = 'light',
+}: {
+  formType: string;
+  onToken: (token: string | null) => void;
+  theme?: 'light' | 'dark';
+}) {
+  const { isEnabled, siteKey, protectedForms, isLoaded } = useReCaptchaSettings();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const widgetIdRef = useRef<number | null>(null);
+  const renderedRef = useRef(false);
 
-  if (!isEnabled || !protectedForms.includes(formType)) {
-    return null;
-  }
+  useEffect(() => {
+    if (!isLoaded || !isEnabled || !protectedForms.includes(formType)) return;
+    if (!siteKey || !containerRef.current || renderedRef.current) return;
+
+    const render = () => {
+      if (!containerRef.current || renderedRef.current) return;
+      const grecaptcha = window.grecaptcha;
+      if (!grecaptcha) return;
+
+      try {
+        widgetIdRef.current = grecaptcha.render(containerRef.current, {
+          sitekey: siteKey,
+          theme,
+          callback: (token: string) => onToken(token),
+          'expired-callback': () => onToken(null),
+          'error-callback': () => onToken(null),
+        });
+        renderedRef.current = true;
+      } catch (e) {
+        console.error('reCAPTCHA render error:', e);
+      }
+    };
+
+    if (window.grecaptcha?.render) {
+      window.grecaptcha.ready(render);
+    } else {
+      // Attendre que le script charge
+      const interval = setInterval(() => {
+        if (window.grecaptcha?.render) {
+          clearInterval(interval);
+          window.grecaptcha.ready(render);
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [isLoaded, isEnabled, siteKey, protectedForms, formType, theme, onToken]);
+
+  // Réinitialiser si le composant se remonte
+  useEffect(() => {
+    return () => {
+      if (widgetIdRef.current !== null && window.grecaptcha?.reset) {
+        try { window.grecaptcha.reset(widgetIdRef.current); } catch { /* ignore */ }
+      }
+    };
+  }, []);
+
+  if (!isEnabled || !protectedForms.includes(formType)) return null;
 
   return (
-    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-      Ce formulaire est protégé par reCAPTCHA et les{' '}
-      <a
-        href="https://policies.google.com/privacy"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-red-600 hover:underline"
-      >
-        Règles de confidentialité
-      </a>{' '}
-      et{' '}
-      <a
-        href="https://policies.google.com/terms"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-red-600 hover:underline"
-      >
-        Conditions d'utilisation
-      </a>{' '}
-      de Google s'appliquent.
-    </p>
+    <div className="flex justify-center my-2">
+      <div ref={containerRef} />
+    </div>
   );
+}
+
+/**
+ * Exposer une fonction reset du widget via ref (optionnel).
+ */
+export function resetReCaptchaWidget() {
+  if (window.grecaptcha?.reset) {
+    try { window.grecaptcha.reset(); } catch { /* ignore */ }
+  }
 }

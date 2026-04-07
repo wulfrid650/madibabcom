@@ -3,7 +3,7 @@
 import React, { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api, ValidationError } from '@/lib/api';
-import { useReCaptcha, ReCaptchaBadge } from '@/components/security/ReCaptcha';
+import { useReCaptchaSettings, ReCaptchaWidget, resetReCaptchaWidget } from '@/components/security/ReCaptcha';
 
 const projectTypes = [
   { value: '', label: 'Type de projet' },
@@ -43,8 +43,9 @@ function ContactPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [submitError, setSubmitError] = useState('');
-  const { isEnabled, protectedForms, executeRecaptcha } = useReCaptcha();
-  const requiresRecaptcha = isEnabled && protectedForms.includes('contact');
+  const { isEnabled: recaptchaEnabled, protectedForms } = useReCaptchaSettings();
+  const showRecaptcha = recaptchaEnabled && protectedForms.includes('contact');
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
 
   // Handle form field changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -136,15 +137,11 @@ function ContactPageContent() {
     }
 
     try {
-      let recaptchaToken: string | null = null;
-      if (requiresRecaptcha) {
-        recaptchaToken = await executeRecaptcha('contact');
-        if (!recaptchaToken) {
-          setSubmitStatus('error');
-          setSubmitError('Vérification reCAPTCHA impossible. Veuillez réessayer.');
-          setIsSubmitting(false);
-          return;
-        }
+      if (showRecaptcha && !recaptchaToken) {
+        setSubmitStatus('error');
+        setSubmitError('Veuillez compléter la vérification reCAPTCHA.');
+        setIsSubmitting(false);
+        return;
       }
 
       const projectLabel = projectTypes.find((type) => type.value === formData.projectType)?.label;
@@ -162,7 +159,7 @@ function ContactPageContent() {
         subject,
         service_type: formData.projectType || undefined,
         message: messageParts.join('\n'),
-        ...(recaptchaToken ? { recaptcha_token: recaptchaToken, recaptcha_action: 'contact' } : {}),
+        ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
       });
       
       setSubmitStatus('success');
@@ -188,6 +185,8 @@ function ContactPageContent() {
       setSubmitStatus('error');
     } finally {
       setIsSubmitting(false);
+      resetReCaptchaWidget();
+      setRecaptchaToken(null);
     }
   };
 
@@ -451,6 +450,8 @@ function ContactPageContent() {
                 </div>
 
                 {/* Submit Button */}
+                <ReCaptchaWidget formType="contact" onToken={setRecaptchaToken} />
+
                 <button
                   type="submit"
                   disabled={isSubmitting}
@@ -468,7 +469,6 @@ function ContactPageContent() {
                     'Demander un devis'
                   )}
                 </button>
-                <ReCaptchaBadge formType="contact" />
               </form>
             </div>
 

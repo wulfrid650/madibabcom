@@ -2,70 +2,107 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { CircleUserRound } from 'lucide-react';
 import { ModeToggle } from './ModeToggle';
+import { useAuth } from '@/contexts/AuthContext';
 import { usePublicSettings } from '@/contexts/PublicSettingsContext';
 
 const Header = () => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const { settings } = usePublicSettings();
-    const brandName = settings.company_short_name || settings.company_name || 'MBC';
+    const { user } = useAuth();
+    const brandShortName = settings.company_short_name || 'MBC';
+    const brandFullName = settings.company_name || 'Madiba Building Construction';
 
     const toggleMobileMenu = () => {
         setIsMobileMenuOpen(!isMobileMenuOpen);
     };
+
+    const accountHref = user ? ({
+        admin: '/doublemb/dashboard',
+        secretaire: '/secretaire/dashboard',
+        chef_chantier: '/chef-chantier/dashboard',
+        formateur: '/formateur/dashboard',
+        apprenant: '/apprenant/dashboard',
+        client: '/client',
+    }[user.role] || '/dashboard') : '/connexion';
+
+    const accountLabel = user ? 'Mon compte' : 'Connexion';
 
     return (
         <header className="bg-white dark:bg-madiba-black border-b border-gray-100 dark:border-gray-800 text-madiba-black dark:text-gray-100 absolute top-0 w-full z-50 transition-colors duration-300">
             <div className="container mx-auto px-6 md:px-12 py-6 flex justify-between items-center">
                 <Link href="/" className="flex items-center gap-2">
                     {/* Visual match: Bold font for MBC */}
-                    <div className="flex flex-col">
-                        <span className="text-3xl font-extrabold tracking-wide font-sans text-madiba-black dark:text-white">
-                            {brandName}
+                    <div className="flex flex-col leading-none">
+                        <span className="text-2xl md:text-3xl font-extrabold tracking-tighter font-sans text-madiba-black dark:text-white">
+                            {brandShortName}
+                        </span>
+                        <span className="text-[8px] md:text-[10px] font-medium tracking-[0.2em] text-madiba-red uppercase text-nowrap">
+                            {brandFullName}
                         </span>
                     </div>
                 </Link>
 
                 {/* Desktop Nav - Matching spacing and font weight from design */}
                 <nav className="hidden md:flex items-center gap-8">
-                    <ul className="flex space-x-12 text-base font-medium text-gray-800 dark:text-gray-200 items-center">
+                    <ul className="flex space-x-8 lg:space-x-12 text-base font-medium text-gray-800 dark:text-gray-200 items-center">
                         {/* Design shows simple text links */}
                         <li>
-                            <Link href="/about" className="hover:text-madiba-red transition-colors">
+                            <Link href="/about" className="block hover:text-madiba-red transition-colors whitespace-nowrap">
                                 À propos
                             </Link>
                         </li>
                         <li>
-                            <Link href="/services" className="hover:text-madiba-red transition-colors">
+                            <Link href="/services" className="block hover:text-madiba-red transition-colors whitespace-nowrap">
                                 Services
                             </Link>
                         </li>
                         <li>
-                            <Link href="/portfolio" className="hover:text-madiba-red transition-colors">
+                            <Link href="/portfolio" className="block hover:text-madiba-red transition-colors whitespace-nowrap">
                                 Portfolio
                             </Link>
                         </li>
                         <li>
-                            <Link href="/contact" className="hover:text-madiba-red transition-colors">
+                            <Link href="/contact" className="block hover:text-madiba-red transition-colors whitespace-nowrap">
                                 Contact
                             </Link>
                         </li>
                         <li>
                             <Link
                                 href="/training"
-                                className="bg-madiba-red hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-all duration-300 shadow-md hover:shadow-lg"
+                                className="block bg-madiba-red hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-all duration-300 shadow-md hover:shadow-lg whitespace-nowrap"
                             >
                                 Formations
                             </Link>
                         </li>
                     </ul>
 
-                    {/* Dark Mode Toggle */}
-                    <ModeToggle />
+                    <div className="flex items-center gap-3">
+                        <Link
+                            href={accountHref}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 transition-colors hover:border-madiba-red hover:text-madiba-red dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-madiba-red dark:hover:text-madiba-red"
+                            title={accountLabel}
+                            aria-label={accountLabel}
+                        >
+                            <CircleUserRound className="h-5 w-5" />
+                        </Link>
+
+                        {/* Dark Mode Toggle */}
+                        <ModeToggle />
+                    </div>
                 </nav>
 
                 {/* Mobile Menu Button - Dark color for light theme */}
                 <div className="flex items-center gap-4 md:hidden">
+                    <Link
+                        href={accountHref}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 transition-colors hover:border-madiba-red hover:text-madiba-red dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-madiba-red dark:hover:text-madiba-red"
+                        title={accountLabel}
+                        aria-label={accountLabel}
+                    >
+                        <CircleUserRound className="h-5 w-5" />
+                    </Link>
                     <ModeToggle />
                     <button
                         onClick={toggleMobileMenu}
@@ -122,6 +159,13 @@ const Header = () => {
                             onClick={() => setIsMobileMenuOpen(false)}
                         >
                             Formations
+                        </Link>
+                        <Link
+                            href={accountHref}
+                            className="text-lg font-medium text-gray-800 dark:text-gray-200 hover:text-madiba-red py-2 border-t border-gray-100 dark:border-gray-800"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                            {accountLabel}
                         </Link>
                     </nav>
                 </div>

@@ -9,7 +9,7 @@ type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';
 type PaymentCategory = 'formation' | 'other';
 
 interface PaymentRow {
-  id: number;
+  id: string;
   reference: string;
   status: PaymentStatus;
   status_label: string;
@@ -88,7 +88,7 @@ export default function ValidationPaiementsPage() {
         const metadata = payment.metadata || {};
         return {
           ...payment,
-          id: Number(payment.id),
+          id: String(payment.id),
           amount: Number(payment.amount || 0),
           category: payment.category || (payment.formation_title ? 'formation' : 'other'),
           user: {
@@ -129,7 +129,7 @@ export default function ValidationPaiementsPage() {
     failed: payments.filter((p) => p.status === 'failed').length,
   }), [payments]);
 
-  const waitForValidationResult = async (paymentId: number) => {
+  const waitForValidationResult = async (paymentId: string) => {
     setNotice('Validation en cours. Vérification automatique du statut...');
     for (let attempt = 0; attempt < 6; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 4000));

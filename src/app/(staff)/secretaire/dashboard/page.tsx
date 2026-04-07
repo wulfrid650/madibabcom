@@ -16,7 +16,7 @@ interface DashboardData {
     recusAujourdhui: number;
   };
   paiementsRecents: {
-    id: number;
+    id: string;
     nom: string;
     formation: string;
     montant: string;
@@ -43,7 +43,7 @@ export default function SecretaireDashboardPage() {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/login?redirect=/secretaire/dashboard');
+      router.push('/connexion?redirect=/secretaire/dashboard');
       return;
     }
     
@@ -63,7 +63,7 @@ export default function SecretaireDashboardPage() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          router.push('/login?error=unauthorized');
+          router.push('/connexion?error=unauthorized');
           return;
         }
         throw new Error('Erreur lors du chargement des données');

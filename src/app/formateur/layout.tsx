@@ -8,6 +8,8 @@ import {
   Users, 
   ClipboardCheck, 
   Calendar,
+  Award,
+  BookOpen,
   LogOut,
   Menu,
   X,
@@ -19,9 +21,11 @@ import RoleSwitcher from '@/components/ui/RoleSwitcher';
 
 const navigation = [
   { name: 'Tableau de bord', href: '/formateur/dashboard', icon: Home },
+  { name: 'Formations', href: '/formateur/formations', icon: BookOpen },
   { name: 'Mes Apprenants', href: '/formateur/apprenants', icon: Users },
   { name: 'Évaluations', href: '/formateur/evaluations', icon: ClipboardCheck },
   { name: 'Présences', href: '/formateur/presences', icon: Calendar },
+  { name: 'Certificats', href: '/formateur/certificats', icon: Award },
 ];
 
 export default function FormateurLayout({

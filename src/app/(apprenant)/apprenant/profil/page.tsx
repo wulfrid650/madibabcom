@@ -28,6 +28,13 @@ export default function ProfilPage() {
   });
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteForm, setDeleteForm] = useState({
+    current_password: '',
+    confirmation: '',
+  });
+  const [deleteMessage, setDeleteMessage] = useState({ type: '', text: '' });
+  const [isDeleteLoading, setIsDeleteLoading] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -104,9 +111,45 @@ export default function ProfilPage() {
       setPasswords({ current_password: '', password: '', password_confirmation: '' });
       setTimeout(() => setShowPasswordModal(false), 2000);
     } catch (error: any) {
-      setPasswordMessage({ type: 'error', text: error.response?.data?.message || 'Erreur lors de la mise à jour.' });
+      setPasswordMessage({ type: 'error', text: error instanceof Error ? error.message : 'Erreur lors de la mise à jour.' });
     } finally {
       setIsPasswordLoading(false);
+    }
+  };
+
+  const closeDeleteModal = () => {
+    if (isDeleteLoading) return;
+    setShowDeleteModal(false);
+    setDeleteForm({ current_password: '', confirmation: '' });
+    setDeleteMessage({ type: '', text: '' });
+  };
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteMessage({ type: '', text: '' });
+
+    if (deleteForm.confirmation !== 'SUPPRIMER') {
+      setDeleteMessage({ type: 'error', text: 'Veuillez saisir exactement SUPPRIMER pour confirmer.' });
+      return;
+    }
+
+    setIsDeleteLoading(true);
+    try {
+      const result = await api.deleteCurrentAccount({
+        current_password: deleteForm.current_password,
+        confirmation: 'SUPPRIMER',
+      });
+      setDeleteMessage({ type: 'success', text: result.message });
+      window.setTimeout(() => {
+        window.location.href = '/connexion?account_deleted=true';
+      }, 800);
+    } catch (error) {
+      setDeleteMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'La suppression du compte a échoué.',
+      });
+    } finally {
+      setIsDeleteLoading(false);
     }
   };
 
@@ -371,10 +414,86 @@ export default function ProfilPage() {
         <p className="text-sm text-red-700 dark:text-red-300 mb-4">
           La suppression de votre compte est irréversible. Toutes vos données seront définitivement perdues.
         </p>
-        <button className="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors">
+        <button
+          type="button"
+          onClick={() => setShowDeleteModal(true)}
+          className="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors"
+        >
           Supprimer mon compte
         </button>
       </div>
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-md p-6 relative">
+            <button
+              onClick={closeDeleteModal}
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <h3 className="text-xl font-bold text-madiba-black dark:text-white mb-2">Supprimer mon compte</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              Cette action est irréversible. Saisissez votre mot de passe puis tapez <span className="font-semibold text-red-600 dark:text-red-400">SUPPRIMER</span>.
+            </p>
+
+            <form onSubmit={handleDeleteAccount} className="space-y-4">
+              {deleteMessage.text && (
+                <div className={`p-3 rounded-lg text-sm ${deleteMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {deleteMessage.text}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Mot de passe actuel
+                </label>
+                <input
+                  type="password"
+                  required
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-madiba-black dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none"
+                  value={deleteForm.current_password}
+                  onChange={(e) => setDeleteForm({ ...deleteForm, current_password: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Confirmation
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-madiba-black dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none"
+                  value={deleteForm.confirmation}
+                  onChange={(e) => setDeleteForm({ ...deleteForm, confirmation: e.target.value.toUpperCase() })}
+                  placeholder="SUPPRIMER"
+                />
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeDeleteModal}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDeleteLoading}
+                  className="px-6 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  {isDeleteLoading ? 'Suppression...' : 'Confirmer la suppression'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

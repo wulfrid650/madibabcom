@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search,
   Plus,
-  Filter,
   Download,
   MoreVertical,
   Edit,
@@ -24,7 +23,7 @@ import {
   AlertTriangle,
   Lock
 } from 'lucide-react';
-import { getUsers, deleteUser, toggleUserStatus, getRoles, downloadCSV, type User as ApiUser, type Role } from '@/lib/admin-api';
+import { getUsers, deleteUser, toggleUserStatus, getRoles, updateUser, downloadCSV, type User as ApiUser, type Role } from '@/lib/admin-api';
 
 interface User {
   id: string;
@@ -76,18 +75,16 @@ export default function UsersPage() {
 
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [showActions, setShowActions] = useState<string | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
+  const [isPasswordSaving, setIsPasswordSaving] = useState(false);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const handlePasswordChange = async () => {
     if (!showPasswordModal || !newPassword) return;
 
+    setIsPasswordSaving(true);
     try {
-      // Use updateUser from admin-api which supports password update
-      // We need to cast or ensure updateUser exists in imports
-      const { updateUser } = await import('@/lib/admin-api');
-
       const response = await updateUser(showPasswordModal, { password: newPassword });
 
       if (response.success) {
@@ -100,6 +97,8 @@ export default function UsersPage() {
     } catch (err) {
       console.error(err);
       alert('Erreur lors de la mise à jour');
+    } finally {
+      setIsPasswordSaving(false);
     }
   };
 
@@ -136,6 +135,8 @@ export default function UsersPage() {
         setUsers(transformedUsers);
         setTotalPages(response.meta.last_page);
         setTotalUsers(response.meta.total);
+        setSelectedUsers([]);
+        setShowActions(null);
       } else {
         setError('Erreur lors du chargement des utilisateurs');
       }
@@ -193,7 +194,8 @@ export default function UsersPage() {
       try {
         const response = await deleteUser(userId);
         if (response.success) {
-          fetchUsers(); // Refresh the list
+          setShowActions(null);
+          await fetchUsers();
         } else {
           alert(response.message || 'Erreur lors de la suppression');
         }
@@ -210,9 +212,74 @@ export default function UsersPage() {
         setUsers(prev => prev.map(u =>
           u.id === userId ? { ...u, is_active: response.data?.is_active ?? !u.is_active } : u
         ));
+        setShowActions(null);
       }
     } catch {
       alert('Erreur lors de la mise à jour du statut');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedUsers.length === 0 || isBulkProcessing) return;
+
+    if (!confirm(`Supprimer ${selectedUsers.length} utilisateur(s) sélectionné(s) ?`)) {
+      return;
+    }
+
+    setIsBulkProcessing(true);
+    try {
+      const results = await Promise.allSettled(selectedUsers.map((userId) => deleteUser(userId)));
+      const successCount = results.filter(
+        (result) => result.status === 'fulfilled' && result.value.success
+      ).length;
+      const failureCount = selectedUsers.length - successCount;
+
+      if (successCount > 0) {
+        await fetchUsers();
+      }
+
+      setSelectedUsers([]);
+
+      if (failureCount === 0) {
+        alert(`${successCount} utilisateur(s) supprimé(s) avec succès`);
+      } else {
+        alert(`${successCount} utilisateur(s) supprimé(s), ${failureCount} échec(s).`);
+      }
+    } catch (error) {
+      console.error('Error bulk deleting users:', error);
+      alert('Erreur lors de la suppression groupée');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const handleBulkToggleStatus = async () => {
+    if (selectedUsers.length === 0 || isBulkProcessing) return;
+
+    setIsBulkProcessing(true);
+    try {
+      const results = await Promise.allSettled(selectedUsers.map((userId) => toggleUserStatus(userId)));
+      const successCount = results.filter(
+        (result) => result.status === 'fulfilled' && result.value.success
+      ).length;
+      const failureCount = selectedUsers.length - successCount;
+
+      if (successCount > 0) {
+        await fetchUsers();
+      }
+
+      setSelectedUsers([]);
+
+      if (failureCount === 0) {
+        alert(`${successCount} utilisateur(s) mis à jour avec succès`);
+      } else {
+        alert(`${successCount} utilisateur(s) mis à jour, ${failureCount} échec(s).`);
+      }
+    } catch (error) {
+      console.error('Error bulk toggling users:', error);
+      alert('Erreur lors de la mise à jour groupée');
+    } finally {
+      setIsBulkProcessing(false);
     }
   };
 
@@ -291,13 +358,12 @@ export default function UsersPage() {
               className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
             >
               <option value="">Tous les rôles</option>
-              <option value="admin">Administrateurs</option>
               <option value="staff">Staff (tous)</option>
-              <option value="secretaire">Secrétaires</option>
-              <option value="chef_chantier">Chefs de chantier</option>
-              <option value="formateur">Formateurs</option>
-              <option value="client">Clients</option>
-              <option value="apprenant">Apprenants</option>
+              {availableRoles.map((role) => (
+                <option key={role.id} value={role.slug}>
+                  {role.name}
+                </option>
+              ))}
             </select>
 
             <select
@@ -460,6 +526,7 @@ export default function UsersPage() {
                             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
                               <Link
                                 href={`/doublemb/utilisateurs/${user.id}`}
+                                onClick={() => setShowActions(null)}
                                 className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                               >
                                 <Eye className="h-4 w-4 mr-2" />
@@ -467,6 +534,7 @@ export default function UsersPage() {
                               </Link>
                               <Link
                                 href={`/doublemb/utilisateurs/${user.id}/modifier`}
+                                onClick={() => setShowActions(null)}
                                 className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                               >
                                 <Edit className="h-4 w-4 mr-2" />
@@ -474,6 +542,7 @@ export default function UsersPage() {
                               </Link>
                               <Link
                                 href={`/doublemb/utilisateurs/${user.id}/roles`}
+                                onClick={() => setShowActions(null)}
                                 className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                               >
                                 <Shield className="h-4 w-4 mr-2" />
@@ -481,7 +550,10 @@ export default function UsersPage() {
                               </Link>
                               <hr className="my-1 border-gray-200 dark:border-gray-700" />
                               <button
-                                onClick={() => handleDeleteUser(user.id)}
+                                onClick={() => {
+                                  setShowActions(null);
+                                  handleDeleteUser(user.id);
+                                }}
                                 className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                               >
                                 <Trash2 className="h-4 w-4 mr-2" />
@@ -511,8 +583,8 @@ export default function UsersPage() {
             {/* Pagination */}
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                Affichage de {(currentPage - 1) * itemsPerPage + 1} à{' '}
-                {Math.min(currentPage * itemsPerPage, users.length)} sur {users.length} utilisateurs
+                Affichage de {users.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} à{' '}
+                {Math.min(currentPage * itemsPerPage, totalUsers)} sur {totalUsers} utilisateurs
               </div>
               <div className="flex items-center space-x-2">
                 <button
@@ -586,10 +658,10 @@ export default function UsersPage() {
                 </button>
                 <button
                   onClick={handlePasswordChange}
-                  disabled={!newPassword || newPassword.length < 6}
+                  disabled={!newPassword || newPassword.length < 6 || isPasswordSaving}
                   className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50"
                 >
-                  Sauvegarder
+                  {isPasswordSaving ? 'Sauvegarde...' : 'Sauvegarder'}
                 </button>
               </div>
             </div>
@@ -602,14 +674,25 @@ export default function UsersPage() {
         selectedUsers.length > 0 && (
           <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-xl shadow-lg flex items-center space-x-4">
             <span className="text-sm">{selectedUsers.length} utilisateur(s) sélectionné(s)</span>
-            <button className="px-3 py-1 bg-red-600 rounded-lg text-sm hover:bg-red-700">
-              Supprimer
-            </button>
-            <button className="px-3 py-1 bg-gray-700 rounded-lg text-sm hover:bg-gray-600">
-              Activer/Désactiver
+            <button
+              onClick={handleBulkDelete}
+              disabled={isBulkProcessing}
+              className="px-3 py-1 bg-red-600 rounded-lg text-sm hover:bg-red-700 disabled:opacity-50"
+            >
+              {isBulkProcessing ? 'Traitement...' : 'Supprimer'}
             </button>
             <button
-              onClick={() => setSelectedUsers([])}
+              onClick={handleBulkToggleStatus}
+              disabled={isBulkProcessing}
+              className="px-3 py-1 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 disabled:opacity-50"
+            >
+              {isBulkProcessing ? 'Traitement...' : 'Activer/Désactiver'}
+            </button>
+            <button
+              onClick={() => {
+                setSelectedUsers([]);
+                setShowActions(null);
+              }}
               className="text-gray-400 hover:text-white"
             >
               Annuler

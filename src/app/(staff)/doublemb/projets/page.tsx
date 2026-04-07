@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search,
   Plus,
-  Filter,
   Download,
   MoreVertical,
   Edit,
@@ -16,7 +15,6 @@ import {
   Calendar,
   Users,
   Building2,
-  Clock,
   CheckCircle2,
   AlertTriangle,
   PauseCircle,
@@ -109,6 +107,10 @@ export default function ProjectsPage() {
               : normalizedStatus === 'completed' ? 'termine'
                 : normalizedStatus === 'cancelled' ? 'annule'
                   : 'planifie';
+        const assignedPeopleCount =
+          typeof p.assigned_people_count === 'number'
+            ? p.assigned_people_count
+            : Array.isArray(p.team_ids) ? p.team_ids.length : 0;
 
         return {
           id: String(p.id),
@@ -120,7 +122,7 @@ export default function ProjectsPage() {
             company_name: p.client_name || p.client || undefined,
           },
           chef_chantier: p.chef_chantier_id
-            ? { id: String(p.chef_chantier_id), name: `Chef #${p.chef_chantier_id}` }
+            ? { id: String(p.chef_chantier_id), name: p.chef_chantier_name || `Chef #${p.chef_chantier_id}` }
             : undefined,
           location: p.location || 'Localisation non définie',
           status: mappedStatus,
@@ -130,7 +132,7 @@ export default function ProjectsPage() {
           estimated_end_date: p.expected_end_date || p.completion_date || p.created_at,
           budget: Number(p.budget || 0),
           spent: 0,
-          team_size: Array.isArray(p.team_ids) ? p.team_ids.length : 0,
+          team_size: assignedPeopleCount,
           created_at: p.created_at,
         };
       });

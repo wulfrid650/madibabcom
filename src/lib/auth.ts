@@ -36,6 +36,32 @@ export interface AuthResponse {
   token?: string;
   message?: string;
   errors?: Record<string, string[]>;
+  requires_two_factor?: boolean;
+  retry_after_seconds?: number;
+  two_factor?: TwoFactorChallengePayload;
+}
+
+export interface TwoFactorChallengePayload {
+  challenge_token: string;
+  expires_at?: string | null;
+  resend_available_at?: string | null;
+  retry_after_seconds?: number;
+  remaining_resends?: number;
+  send_count_last_hour?: number;
+  cooldown_seconds?: number;
+  email?: string;
+}
+
+interface PendingTwoFactorChallenge {
+  email: string;
+  challenge_token: string;
+  remember_me: boolean;
+  expires_at?: string | null;
+  resend_available_at?: string | null;
+  retry_after_seconds?: number;
+  remaining_resends?: number;
+  send_count_last_hour?: number;
+  cooldown_seconds?: number;
 }
 
 // Stockage du token
@@ -43,6 +69,7 @@ const TOKEN_KEY = 'mbc_auth_token';
 const USER_KEY = 'mbc_auth_user';
 const LEGACY_TOKEN_KEYS = ['auth_token', 'token'];
 const LEGACY_USER_KEYS = ['user', 'mbc_user_data'];
+const TWO_FACTOR_KEY = 'mbc_pending_two_factor';
 
 function clearAuthStorage(): void {
   if (typeof window === 'undefined') return;
@@ -56,6 +83,9 @@ function clearAuthStorage(): void {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   });
+
+  localStorage.removeItem(TWO_FACTOR_KEY);
+  sessionStorage.removeItem(TWO_FACTOR_KEY);
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
@@ -72,9 +102,95 @@ async function fetchWithTimeout(url: string, options: RequestInit): Promise<Resp
   }
 }
 
+function normalizeBackendUser(user: unknown): User {
+  const normalized = { ...(user as Record<string, unknown>) } as any;
+
+  if (normalized.active_role && typeof normalized.active_role === 'object') {
+    normalized.role = normalized.active_role.slug;
+  } else if (!normalized.role && Array.isArray(normalized.roles) && normalized.roles.length > 0) {
+    normalized.role = normalized.roles[0].slug;
+  }
+
+  return normalized as User;
+}
+
+function persistAuthenticatedSession(user: User, token: string): void {
+  clearAuthStorage();
+
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  sessionStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+
+  LEGACY_TOKEN_KEYS.forEach((key) => {
+    localStorage.setItem(key, token);
+    sessionStorage.setItem(key, token);
+  });
+
+  LEGACY_USER_KEYS.forEach((key) => {
+    localStorage.setItem(key, JSON.stringify(user));
+    sessionStorage.setItem(key, JSON.stringify(user));
+  });
+}
+
+function savePendingTwoFactorChallenge(payload: PendingTwoFactorChallenge): void {
+  if (typeof window === 'undefined') return;
+  const serialized = JSON.stringify(payload);
+  sessionStorage.setItem(TWO_FACTOR_KEY, serialized);
+  localStorage.setItem(TWO_FACTOR_KEY, serialized);
+}
+
+function getPendingTwoFactorChallenge(): PendingTwoFactorChallenge | null {
+  if (typeof window === 'undefined') return null;
+
+  const stored = sessionStorage.getItem(TWO_FACTOR_KEY) || localStorage.getItem(TWO_FACTOR_KEY);
+  if (!stored) return null;
+
+  try {
+    return JSON.parse(stored) as PendingTwoFactorChallenge;
+  } catch {
+    sessionStorage.removeItem(TWO_FACTOR_KEY);
+    localStorage.removeItem(TWO_FACTOR_KEY);
+    return null;
+  }
+}
+
+function clearPendingTwoFactorChallenge(): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(TWO_FACTOR_KEY);
+  localStorage.removeItem(TWO_FACTOR_KEY);
+}
+
+function toPendingTwoFactorChallenge(
+  email: string,
+  rememberMe: boolean,
+  payload?: TwoFactorChallengePayload | null,
+): PendingTwoFactorChallenge | null {
+  if (!payload?.challenge_token) {
+    return null;
+  }
+
+  return {
+    email,
+    remember_me: rememberMe,
+    challenge_token: payload.challenge_token,
+    expires_at: payload.expires_at ?? null,
+    resend_available_at: payload.resend_available_at ?? null,
+    retry_after_seconds: payload.retry_after_seconds ?? 0,
+    remaining_resends: payload.remaining_resends ?? 0,
+    send_count_last_hour: payload.send_count_last_hour ?? 0,
+    cooldown_seconds: payload.cooldown_seconds ?? 0,
+  };
+}
+
 export const auth = {
   // Connexion
-  async login(email: string, password: string, recaptchaToken?: string): Promise<AuthResponse> {
+  async login(
+    email: string,
+    password: string,
+    recaptchaToken?: string,
+    rememberMe: boolean = false,
+  ): Promise<AuthResponse> {
     try {
       const response = await fetchWithTimeout(`${API_URL}/auth/login`, {
         method: 'POST',
@@ -85,39 +201,37 @@ export const auth = {
         body: JSON.stringify({
           email,
           password,
-          ...(recaptchaToken ? { recaptcha_token: recaptchaToken, recaptcha_action: 'login' } : {}),
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
 
       const data = await response.json();
 
-      if (data.success && data.token) {
-        // Clear any existing auth data first to prevent conflicts
+      if (data.success && data.requires_two_factor && data.two_factor) {
         clearAuthStorage();
-        
-        // Normalize user data from backend
-        const user = data.user as any;
-        // Backend returns active_role as object, frontend expects role as string
-        if (user.active_role && typeof user.active_role === 'object') {
-          user.role = user.active_role.slug;
-        } else if (!user.role && user.roles && user.roles.length > 0) {
-          // Fallback to first role if active_role missing
-          user.role = user.roles[0].slug;
+        const pendingChallenge = toPendingTwoFactorChallenge(email, rememberMe, data.two_factor);
+
+        if (!pendingChallenge) {
+          return { success: false, message: 'Le challenge de vérification est invalide.' };
         }
 
-        // Stocker le token et l'utilisateur
-        localStorage.setItem(TOKEN_KEY, data.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(user));
-        sessionStorage.setItem(TOKEN_KEY, data.token);
-        sessionStorage.setItem(USER_KEY, JSON.stringify(user));
-        LEGACY_TOKEN_KEYS.forEach((key) => {
-          localStorage.setItem(key, data.token);
-          sessionStorage.setItem(key, data.token);
-        });
-        LEGACY_USER_KEYS.forEach((key) => {
-          localStorage.setItem(key, JSON.stringify(user));
-          sessionStorage.setItem(key, JSON.stringify(user));
-        });
+        savePendingTwoFactorChallenge(pendingChallenge);
+
+        return {
+          success: true,
+          requires_two_factor: true,
+          message: data.message || 'Un code de vérification a été envoyé par email.',
+          retry_after_seconds: data.retry_after_seconds ?? data.two_factor.retry_after_seconds,
+          two_factor: {
+            ...data.two_factor,
+            email: pendingChallenge.email,
+          },
+        };
+      }
+
+      if (data.success && data.token) {
+        const user = normalizeBackendUser(data.user);
+        persistAuthenticatedSession(user, data.token);
         
         console.log('✅ Login successful:', { email: user.email, name: user.name, role: user.role });
         
@@ -126,7 +240,7 @@ export const auth = {
 
       return { success: false, message: data.message || 'Identifiants incorrects' };
     } catch (error) {
-      console.error('Erreur de connexion:', error);
+      if ((error as Error).name !== 'AbortError') console.error('Erreur de connexion:', error);
       return { success: false, message: 'Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.' };
     }
   },
@@ -156,37 +270,15 @@ export const auth = {
           password_confirmation: data.password,
           role: 'apprenant',
           formation: data.formation,
-          ...(data.recaptchaToken ? { recaptcha_token: data.recaptchaToken, recaptcha_action: 'register' } : {}),
+          ...(data.recaptchaToken ? { recaptcha_token: data.recaptchaToken } : {}),
         }),
       });
 
       const result = await response.json();
 
       if (result.success && result.token) {
-        // Clear any existing auth data first
-        clearAuthStorage();
-        
-        // Normalize user data from backend
-        const user = result.user as any;
-        if (user.active_role && typeof user.active_role === 'object') {
-          user.role = user.active_role.slug;
-        } else if (!user.role && user.roles && user.roles.length > 0) {
-          user.role = user.roles[0].slug;
-        }
-        
-        // Set new auth data
-        localStorage.setItem(TOKEN_KEY, result.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(user));
-        sessionStorage.setItem(TOKEN_KEY, result.token);
-        sessionStorage.setItem(USER_KEY, JSON.stringify(user));
-        LEGACY_TOKEN_KEYS.forEach((key) => {
-          localStorage.setItem(key, result.token);
-          sessionStorage.setItem(key, result.token);
-        });
-        LEGACY_USER_KEYS.forEach((key) => {
-          localStorage.setItem(key, JSON.stringify(user));
-          sessionStorage.setItem(key, JSON.stringify(user));
-        });
+        const user = normalizeBackendUser(result.user);
+        persistAuthenticatedSession(user, result.token);
         
         console.log('✅ Registration successful:', { email: user.email, name: user.name, role: user.role });
         
@@ -204,6 +296,119 @@ export const auth = {
     }
   },
 
+  async verifyTwoFactor(code: string): Promise<AuthResponse> {
+    const pendingChallenge = getPendingTwoFactorChallenge();
+
+    if (!pendingChallenge) {
+      return {
+        success: false,
+        message: 'La vérification a expiré. Veuillez relancer la connexion.',
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/auth/two-factor/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          challenge_token: pendingChallenge.challenge_token,
+          code,
+          remember_me: pendingChallenge.remember_me,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.token) {
+        const user = normalizeBackendUser(data.user);
+        persistAuthenticatedSession(user, data.token);
+        clearPendingTwoFactorChallenge();
+
+        return {
+          success: true,
+          user,
+          token: data.token,
+          message: data.message,
+        };
+      }
+
+      if (response.status === 422 && typeof data.message === 'string' && data.message.includes('relancer la connexion')) {
+        clearPendingTwoFactorChallenge();
+      }
+
+      return {
+        success: false,
+        message: data.message || 'Code de vérification invalide.',
+        errors: data.errors,
+      };
+    } catch (error: any) {
+      if (error.name !== 'AbortError') console.error('Erreur de vérification 2FA:', error);
+      return { success: false, message: 'Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.' };
+    }
+  },
+
+  async resendTwoFactorCode(): Promise<AuthResponse> {
+    const pendingChallenge = getPendingTwoFactorChallenge();
+
+    if (!pendingChallenge) {
+      return {
+        success: false,
+        message: 'Aucun challenge 2FA en attente.',
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/auth/two-factor/resend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          challenge_token: pendingChallenge.challenge_token,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.two_factor) {
+        const nextPendingChallenge = toPendingTwoFactorChallenge(
+          pendingChallenge.email,
+          pendingChallenge.remember_me,
+          data.two_factor,
+        );
+
+        if (nextPendingChallenge) {
+          savePendingTwoFactorChallenge(nextPendingChallenge);
+        }
+
+        return {
+          success: true,
+          requires_two_factor: true,
+          message: data.message || 'Un nouveau code a été envoyé.',
+          retry_after_seconds: data.retry_after_seconds ?? data.two_factor.retry_after_seconds,
+          two_factor: {
+            ...data.two_factor,
+            email: pendingChallenge.email,
+          },
+        };
+      }
+
+      return {
+        success: false,
+        message: data.message || 'Impossible de renvoyer le code.',
+        errors: data.errors,
+        retry_after_seconds: data.retry_after_seconds,
+      };
+    } catch (error: any) {
+      if (error.name !== 'AbortError') console.error('Erreur de renvoi 2FA:', error);
+      return { success: false, message: 'Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.' };
+    }
+  },
+
   // Déconnexion
   async logout(): Promise<void> {
     const token = this.getToken();
@@ -214,19 +419,12 @@ export const auth = {
           method: 'POST',
           headers: this.getAuthHeaders(),
         });
-      } catch (error) {
-        console.error('Erreur lors de la déconnexion:', error);
+      } catch (error: any) {
+        if (error.name !== 'AbortError') console.error('Erreur lors de la déconnexion:', error);
       }
     }
 
-    // Clear all auth-related data from localStorage
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    // Clear legacy keys too
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('mbc_user_data');
+    clearAuthStorage();
     
     console.log('✅ Logout successful - all data cleared');
   },
@@ -373,6 +571,14 @@ export const auth = {
       console.error('Erreur lors de l\'ajout du rôle:', error);
       return { success: false, message: 'Erreur de connexion au serveur' };
     }
+  },
+
+  getPendingTwoFactorChallenge(): PendingTwoFactorChallenge | null {
+    return getPendingTwoFactorChallenge();
+  },
+
+  clearPendingTwoFactorChallenge(): void {
+    clearPendingTwoFactorChallenge();
   },
 };
 

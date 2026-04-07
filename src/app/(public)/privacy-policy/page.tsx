@@ -4,8 +4,8 @@ import LegalPageContent, { fetchLegalPage } from '@/components/legal/LegalPageCo
 export async function generateMetadata(): Promise<Metadata> {
   const page = await fetchLegalPage('privacy-policy');
   return {
-    title: page?.meta_title || 'Politique de Confidentialité | MBC Construction',
-    description: page?.meta_description || 'Politique de confidentialité de MBC Construction.',
+    title: page?.meta_title || 'Politique de Confidentialité | MBC',
+    description: page?.meta_description || 'Politique de confidentialité relative aux services numériques MBC.',
   };
 }
 
@@ -14,7 +14,7 @@ export default async function PrivacyPolicyPage() {
     <LegalPageContent
       slug="privacy-policy"
       fallbackTitle="Politique de Confidentialité"
-      fallbackSubtitle="Dernière mise à jour"
+      fallbackSubtitle="Données personnelles, sécurité et cookies"
     />
   );
 }

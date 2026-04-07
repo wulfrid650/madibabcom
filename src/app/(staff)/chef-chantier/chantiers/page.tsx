@@ -5,12 +5,25 @@ import { useRouter } from 'next/navigation';
 import { Search, Plus, MoreVertical, MapPin, Users, Calendar, TrendingUp } from 'lucide-react';
 import { api, PortfolioProject } from '@/lib/api';
 
+type UIProject = {
+  id: number | string;
+  name: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  team: number;
+  teamNames: string[];
+  progress: number;
+  status: string;
+  priority: 'Haute' | 'Moyenne' | 'Basse';
+};
+
 export default function ChantiersPage() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState<any[]>([]); // Using any[] temporarily for mapped UI object, or I could define an interface UIProject
+  const [projects, setProjects] = useState<UIProject[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,7 +37,7 @@ export default function ChantiersPage() {
       const data = await api.getChefChantierChantiers();
 
       // Map API data to UI format
-      const mappedProjects = data.map((p: PortfolioProject) => {
+      const mappedProjects: UIProject[] = data.map((p: PortfolioProject): UIProject => {
         // Status mapping
         let uiStatus = 'En cours';
         if (p.status === 'completed') uiStatus = 'Terminé';
@@ -33,8 +46,12 @@ export default function ChantiersPage() {
         // Simulate 'Presque terminé' based on progress?
         if (p.status === 'in_progress' && (p.progress as number) > 90) uiStatus = 'Presque terminé';
 
-        // Priority mapping (mock or from metadata if available)
-        const priority = 'Moyenne';
+        const priority: UIProject['priority'] =
+          p.priority === 'high'
+            ? 'Haute'
+            : p.priority === 'low'
+            ? 'Basse'
+            : 'Moyenne';
 
         return {
           id: p.id,
@@ -42,10 +59,17 @@ export default function ChantiersPage() {
           location: p.location || 'Localisation inconnue',
           startDate: p.start_date || '',
           endDate: p.expected_end_date || p.completion_date || '',
-          team: Array.isArray((p as any).team_ids) ? (p as any).team_ids.length : 0,
+          team: Array.isArray(p.construction_team_ids)
+            ? p.construction_team_ids.length
+            : Array.isArray(p.team_ids)
+            ? p.team_ids.length
+            : 0,
+          teamNames: Array.isArray(p.construction_teams)
+            ? p.construction_teams.map((team) => team.name)
+            : [],
           progress: p.progress || 0,
           status: uiStatus,
-          priority: priority,
+          priority,
         };
       });
 
@@ -177,6 +201,11 @@ export default function ChantiersPage() {
                     <MapPin className="h-4 w-4 mr-1" />
                     {project.location}
                   </div>
+                  {project.teamNames.length > 0 ? (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Équipes: {project.teamNames.join(', ')}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex items-center space-x-2">
                   <span

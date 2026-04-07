@@ -2,6 +2,8 @@
 
 import Script from 'next/script';
 import { useEffect, useState } from 'react';
+import { getCookieConsent } from '@/components/security/CookieConsentModal';
+import { api } from '@/lib/api';
 
 interface AnalyticsSettings {
   ga4_enabled?: boolean;
@@ -21,6 +23,37 @@ const SETTINGS_TIMEOUT_MS = 5000;
 export function GoogleAnalytics() {
   const [settings, setSettings] = useState<AnalyticsSettings>({});
   const [loaded, setLoaded] = useState(false);
+  const [consent, setConsent] = useState<{ analytics: boolean; marketing: boolean }>({
+    analytics: false,
+    marketing: false,
+  });
+
+  useEffect(() => {
+    // Check initial consent
+    const currentConsent = getCookieConsent();
+    if (currentConsent) {
+      setConsent({
+        analytics: currentConsent.analytics,
+        marketing: currentConsent.marketing,
+      });
+    }
+
+    // Listen to updates
+    const handleConsentUpdate = () => {
+      const updatedConsent = getCookieConsent();
+      if (updatedConsent) {
+        setConsent({
+          analytics: updatedConsent.analytics,
+          marketing: updatedConsent.marketing,
+        });
+      }
+    };
+
+    window.addEventListener('cookie_consent_updated', handleConsentUpdate);
+    return () => {
+      window.removeEventListener('cookie_consent_updated', handleConsentUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -33,22 +66,16 @@ export function GoogleAnalytics() {
 
     const fetchSettings = async () => {
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-        const response = await fetch(`${API_URL}/public/settings`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
+        const data = await api.getPublicSettings();
 
-        const data = await response.json();
-
-        if (data.success && data.data) {
+        if (data) {
           setSettings({
-            ga4_enabled: data.data.ga4_enabled === true || data.data.ga4_enabled === '1',
-            ga4_id: data.data.ga4_id,
-            gtm_enabled: data.data.gtm_enabled === true || data.data.gtm_enabled === '1',
-            gtm_id: data.data.gtm_id,
-            fb_pixel_enabled: data.data.fb_pixel_enabled === true || data.data.fb_pixel_enabled === '1',
-            fb_pixel_id: data.data.fb_pixel_id,
+            ga4_enabled: data.ga4_enabled === true || data.ga4_enabled === '1',
+            ga4_id: data.ga4_id,
+            gtm_enabled: data.gtm_enabled === true || data.gtm_enabled === '1',
+            gtm_id: data.gtm_id,
+            fb_pixel_enabled: data.fb_pixel_enabled === true || data.fb_pixel_enabled === '1',
+            fb_pixel_id: data.fb_pixel_id,
           });
         }
       } catch (error) {
@@ -83,7 +110,7 @@ export function GoogleAnalytics() {
   return (
     <>
       {/* Google Analytics 4 */}
-      {settings.ga4_enabled && settings.ga4_id && (
+      {consent.analytics && settings.ga4_enabled && settings.ga4_id && (
         <>
           <Script
             src={`https://www.googletagmanager.com/gtag/js?id=${settings.ga4_id}`}
@@ -103,7 +130,7 @@ export function GoogleAnalytics() {
       )}
 
       {/* Google Tag Manager */}
-      {settings.gtm_enabled && settings.gtm_id && (
+      {consent.analytics && settings.gtm_enabled && settings.gtm_id && (
         <>
           <Script id="gtm-script" strategy="afterInteractive">
             {`
@@ -118,7 +145,8 @@ export function GoogleAnalytics() {
       )}
 
       {/* Facebook Pixel */}
-      {settings.fb_pixel_enabled && settings.fb_pixel_id && (
+      {consent.marketing && settings.fb_pixel_enabled && settings.fb_pixel_id && (
+
         <Script id="fb-pixel" strategy="afterInteractive">
           {`
             !function(f,b,e,v,n,t,s)

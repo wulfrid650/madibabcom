@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -37,6 +38,9 @@ interface SiteSettings {
     contact_phone?: string;
     contact_phone_secondary?: string;
     contact_email?: string;
+    phone?: string;
+    phone_secondary?: string;
+    email?: string;
     address?: string;
 }
 
@@ -111,7 +115,7 @@ export default function TrainingPage() {
                 // Fetch formations and settings in parallel
                 const [formationsRes, settingsRes] = await Promise.all([
                     fetch(`${API_URL}/public/formations`),
-                    fetch(`${API_URL}/public/settings`).catch(() => null)
+                    api.getPublicSettings().catch(() => null)
                 ]);
 
                 if (!formationsRes.ok) {
@@ -122,14 +126,13 @@ export default function TrainingPage() {
                 setFormations(formationsData.data || []);
 
                 // Update contact info from settings if available
-                if (settingsRes && settingsRes.ok) {
-                    const settingsData = await settingsRes.json();
-                    const settings: SiteSettings = settingsData.data || {};
+                if (settingsRes) {
+                    const settings: SiteSettings = settingsRes;
                     setContactInfo({
-                        email: settings.contact_email || defaultContactInfo.email,
+                        email: settings.email || settings.contact_email || defaultContactInfo.email,
                         phones: [
-                            settings.contact_phone || defaultContactInfo.phones[0],
-                            settings.contact_phone_secondary || defaultContactInfo.phones[1]
+                            settings.phone || settings.contact_phone || defaultContactInfo.phones[0],
+                            settings.phone_secondary || settings.contact_phone_secondary || defaultContactInfo.phones[1]
                         ].filter(Boolean),
                         location: settings.address || defaultContactInfo.location,
                         prerequis: defaultContactInfo.prerequis,

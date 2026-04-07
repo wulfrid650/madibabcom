@@ -12,9 +12,81 @@
 // Configuration de base
 // ===========================================
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const DEFAULT_API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL;
 const API_REQUEST_TIMEOUT_MS = 10000;
 const SERVICE_UNAVAILABLE_MESSAGE = 'Service temporairement indisponible';
+
+function normalizeApiBaseUrl(url: string): string {
+    return url.trim().replace(/\/+$/, '');
+}
+
+function pushUniqueApiBaseUrl(candidates: string[], url?: string | null): void {
+    if (!url) return;
+    const normalized = normalizeApiBaseUrl(url);
+    if (!normalized || candidates.includes(normalized)) return;
+    candidates.push(normalized);
+}
+
+function getApiBaseUrlCandidates(primaryBaseUrl?: string): string[] {
+    const candidates: string[] = [];
+
+    pushUniqueApiBaseUrl(candidates, primaryBaseUrl);
+    pushUniqueApiBaseUrl(candidates, process.env.NEXT_PUBLIC_API_URL);
+    pushUniqueApiBaseUrl(candidates, DEFAULT_API_BASE_URL);
+    pushUniqueApiBaseUrl(candidates, 'http://127.0.0.1:8000/api');
+
+    if (typeof window !== 'undefined') {
+        const { protocol, hostname } = window.location;
+
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            pushUniqueApiBaseUrl(candidates, 'http://mbc.madibabc.local/api');
+        }
+
+        if (hostname.endsWith('.madibabc.local')) {
+            pushUniqueApiBaseUrl(candidates, `${protocol}//${hostname}/api`);
+        }
+    }
+
+    return candidates;
+}
+
+function isRetryableTransportError(error: unknown): boolean {
+    if (error instanceof DOMException) {
+        return error.name === 'AbortError';
+    }
+
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    const message = error.message.toLowerCase();
+    return message.includes('failed to fetch')
+        || message.includes('load failed')
+        || message.includes('networkerror')
+        || message.includes('network error')
+        || message.includes('fetch failed');
+}
+
+function normalizeRequestError(error: unknown): Error {
+    if (error instanceof ValidationError) {
+        return error;
+    }
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return new Error(SERVICE_UNAVAILABLE_MESSAGE);
+    }
+
+    if (error instanceof TypeError && isRetryableTransportError(error)) {
+        return new Error(SERVICE_UNAVAILABLE_MESSAGE);
+    }
+
+    if (error instanceof Error) {
+        return error;
+    }
+
+    return new Error(SERVICE_UNAVAILABLE_MESSAGE);
+}
 
 function generateIdempotencyKey(): string {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -144,7 +216,7 @@ export const tokenStorage = {
 // ===========================================
 
 export interface User {
-    id: number;
+    id: string;
     name: string;
     email: string;
     phone?: string;
@@ -193,6 +265,15 @@ export interface SiteSettings {
     stats_years: string;
     stats_employees: string;
     stats_regions: string;
+    ga4_enabled?: boolean | '0' | '1';
+    ga4_id?: string;
+    gtm_enabled?: boolean | '0' | '1';
+    gtm_id?: string;
+    fb_pixel_enabled?: boolean | '0' | '1';
+    fb_pixel_id?: string;
+    recaptcha_enabled?: boolean | '0' | '1';
+    recaptcha_site_key?: string;
+    recaptcha_forms?: string[] | string;
 }
 
 export interface Service {
@@ -289,6 +370,9 @@ export interface PortfolioProject {
     chef_chantier_id?: number;
     created_by?: number;
     team_ids?: number[];
+    priority?: 'low' | 'medium' | 'high' | string;
+    construction_team_ids?: number[];
+    construction_teams?: Array<{ id: number; name: string }>;
     metadata?: Record<string, unknown> | null;
 }
 
@@ -302,6 +386,8 @@ export interface ChefChantierChantierPayload {
     start_date?: string;
     expected_end_date?: string;
     budget?: string;
+    priority?: 'low' | 'medium' | 'high';
+    construction_team_ids?: number[];
 }
 
 export interface ProjectPhaseOption {
@@ -378,7 +464,7 @@ export interface PaymentInitiateRequest {
 }
 
 export interface PaymentInitiateResponse {
-    payment_id: number;
+    payment_id: string | null;
     reference: string;
     checkout_url: string | null;
     link?: string;
@@ -404,7 +490,7 @@ export interface PaymentStatus {
 }
 
 export interface Payment {
-    id?: number;
+    id?: string;
     reference: string;
     status: 'pending' | 'completed' | 'failed' | 'refunded';
     status_label: string;
@@ -492,11 +578,12 @@ class ApiClient {
         endpoint: string,
         options: ApiRequestOptions = {}
     ): Promise<T> {
-        const url = `${this.baseUrl}${endpoint}`;
         const token = tokenStorage.getToken();
         const { timeoutMs = API_REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
         const isFormData =
             typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
+        const method = (fetchOptions.method || 'GET').toUpperCase();
+        const hasRequestBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
         const headers = new Headers(fetchOptions.headers || {});
 
         if (!headers.has('Accept')) {
@@ -505,75 +592,85 @@ class ApiClient {
 
         if (isFormData) {
             headers.delete('Content-Type');
-        } else if (!headers.has('Content-Type')) {
+        } else if (hasRequestBody && method !== 'GET' && method !== 'HEAD' && !headers.has('Content-Type')) {
             headers.set('Content-Type', 'application/json');
         }
 
-        // Ajouter le token d'authentification si disponible
-        if (token) {
+        const isPublicEndpoint = endpoint.startsWith('/public/');
+
+        // Ajouter le token d'authentification si disponible, sauf pour les endpoints publics
+        if (token && !isPublicEndpoint) {
             headers.set('Authorization', `Bearer ${token}`);
         }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const baseUrlCandidates = getApiBaseUrlCandidates(this.baseUrl);
+        let lastTransportError: Error | null = null;
 
-        try {
-            const response = await fetch(url, {
-                ...fetchOptions,
-                headers,
-                signal: controller.signal,
-                cache: 'no-store', // Prevent caching of API responses
-            });
+        for (let index = 0; index < baseUrlCandidates.length; index++) {
+            const baseUrl = baseUrlCandidates[index];
+            const url = `${baseUrl}${endpoint}`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-            // Gérer les erreurs HTTP
-            if (!response.ok) {
-                if (response.status === 401) {
-                    tokenStorage.clear();
-                    if (typeof window !== 'undefined') {
-                        window.location.href = '/connexion?expired=true';
+            try {
+                const response = await fetch(url, {
+                    ...fetchOptions,
+                    headers,
+                    signal: controller.signal,
+                    cache: 'no-store',
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        tokenStorage.clear();
+                        if (typeof window !== 'undefined') {
+                            window.location.href = '/connexion?expired=true';
+                        }
+                        throw new Error('Session expirée. Veuillez vous reconnecter.');
                     }
-                    throw new Error('Session expirée. Veuillez vous reconnecter.');
+
+                    if (response.status === 403) {
+                        throw new Error('Vous n\'avez pas les permissions pour cette action.');
+                    }
+
+                    if (response.status === 422) {
+                        const errorData = await response.json();
+                        throw new ValidationError(errorData.message || 'Données invalides', errorData.errors);
+                    }
+
+                    if (response.status === 429) {
+                        throw new Error('Trop de requêtes. Veuillez patienter quelques instants.');
+                    }
+
+                    if (response.status >= 500) {
+                        throw new Error('Erreur serveur. Veuillez réessayer plus tard.');
+                    }
+
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Erreur ${response.status}`);
                 }
 
-                if (response.status === 403) {
-                    throw new Error('Vous n\'avez pas les permissions pour cette action.');
+                this.baseUrl = baseUrl;
+                return await response.json();
+            } catch (error) {
+                if (error instanceof ValidationError) {
+                    throw error;
                 }
 
-                if (response.status === 422) {
-                    const errorData = await response.json();
-                    throw new ValidationError(errorData.message || 'Données invalides', errorData.errors);
+                const normalizedError = normalizeRequestError(error);
+                const canRetry = isRetryableTransportError(error) && index < baseUrlCandidates.length - 1;
+
+                if (!canRetry) {
+                    throw normalizedError;
                 }
 
-                if (response.status === 429) {
-                    throw new Error('Trop de requêtes. Veuillez patienter quelques instants.');
-                }
-
-                if (response.status >= 500) {
-                    throw new Error('Erreur serveur. Veuillez réessayer plus tard.');
-                }
-
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || `Erreur ${response.status}`);
+                lastTransportError = normalizedError;
+            } finally {
+                clearTimeout(timeoutId);
             }
-
-            return await response.json();
-        } catch (error) {
-            if (error instanceof ValidationError) {
-                throw error;
-            }
-
-            if (error instanceof DOMException && error.name === 'AbortError') {
-                throw new Error(SERVICE_UNAVAILABLE_MESSAGE);
-            }
-
-            if (error instanceof TypeError && error.message === 'Failed to fetch') {
-                throw new Error(SERVICE_UNAVAILABLE_MESSAGE);
-            }
-
-            throw error;
-        } finally {
-            clearTimeout(timeoutId);
         }
+
+        throw lastTransportError ?? new Error(SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     // ===========================================
@@ -620,6 +717,22 @@ class ApiClient {
         } finally {
             tokenStorage.clear();
         }
+    }
+
+    async deleteCurrentAccount(data: {
+        current_password: string;
+        confirmation: 'SUPPRIMER';
+    }): Promise<{ message: string }> {
+        const response = await this.request<ApiResponse<null>>('/auth/account', {
+            method: 'DELETE',
+            body: JSON.stringify(data),
+        });
+
+        tokenStorage.clear();
+
+        return {
+            message: response.message || 'Votre compte a été supprimé définitivement.',
+        };
     }
 
     async getCurrentUser(): Promise<User> {
@@ -794,12 +907,12 @@ class ApiClient {
         return response.data;
     }
 
-    async getUser(id: number): Promise<User> {
+    async getUser(id: string): Promise<User> {
         const response = await this.request<ApiResponse<User>>(`/admin/users/${id}`);
         return response.data;
     }
 
-    async updateUser(id: number, data: any): Promise<User> {
+    async updateUser(id: string, data: any): Promise<User> {
         const response = await this.request<ApiResponse<User>>(`/admin/users/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
@@ -807,13 +920,13 @@ class ApiClient {
         return response.data;
     }
 
-    async deleteUser(id: number): Promise<void> {
+    async deleteUser(id: string): Promise<void> {
         await this.request(`/admin/users/${id}`, {
             method: 'DELETE',
         });
     }
 
-    async toggleUserStatus(id: number): Promise<User> {
+    async toggleUserStatus(id: string): Promise<User> {
         const response = await this.request<ApiResponse<User>>(`/admin/users/${id}/toggle-status`, {
             method: 'PATCH',
         });
@@ -1199,6 +1312,93 @@ class ApiClient {
         }
     }
 
+    async getFormateurFormations(
+        page: number = 1,
+        search: string = '',
+        level: string = '',
+        isActive: string = '',
+    ): Promise<{ data: Formation[]; meta: PaginationMeta }> {
+        const params = new URLSearchParams();
+        params.append('page', page.toString());
+        if (search) params.append('search', search);
+        if (level) params.append('level', level);
+        if (isActive !== '') params.append('is_active', isActive);
+
+        const response = await this.request<ApiResponse<any>>(`/formateur/formations?${params}`);
+        return {
+            data: response.data.data || [],
+            meta: {
+                current_page: response.data.current_page,
+                last_page: response.data.last_page,
+                per_page: response.data.per_page,
+                total: response.data.total,
+            },
+        };
+    }
+
+    async getFormateurFormation(id: string | number): Promise<Formation> {
+        const response = await this.request<ApiResponse<Formation>>(`/formateur/formations/${id}`);
+        return response.data;
+    }
+
+    async createFormateurFormation(data: Partial<Formation> & Record<string, unknown>): Promise<Formation> {
+        const response = await this.request<ApiResponse<Formation>>('/formateur/formations', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+        return response.data;
+    }
+
+    async updateFormateurFormation(id: string | number, data: Partial<Formation> & Record<string, unknown>): Promise<Formation> {
+        const response = await this.request<ApiResponse<Formation>>(`/formateur/formations/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+        return response.data;
+    }
+
+    async deleteFormateurFormation(id: string | number): Promise<void> {
+        await this.request(`/formateur/formations/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async toggleFormateurFormationStatus(id: string | number): Promise<Formation> {
+        const response = await this.request<ApiResponse<Formation>>(`/formateur/formations/${id}/toggle-status`, {
+            method: 'PATCH',
+        });
+        return response.data;
+    }
+
+    async getFormateurFormationSessions(id: string | number): Promise<FormateurFormationSession[]> {
+        const response = await this.request<ApiResponse<FormateurFormationSession[]>>(`/formateur/formations/${id}/sessions`);
+        return response.data;
+    }
+
+    async createFormateurFormationSession(
+        id: string | number,
+        data: {
+            start_date: string;
+            end_date: string;
+            start_time?: string;
+            end_time?: string;
+            location?: string;
+            max_students?: number;
+            status?: 'planned' | 'ongoing' | 'completed' | 'cancelled';
+        }
+    ): Promise<FormateurFormationSession> {
+        const response = await this.request<ApiResponse<FormateurFormationSession>>(`/formateur/formations/${id}/sessions`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+        return response.data;
+    }
+
+    async getChefChantierDashboard(): Promise<ChefChantierDashboardData> {
+        const response = await this.request<ApiResponse<ChefChantierDashboardData>>('/chef-chantier/dashboard');
+        return response.data;
+    }
+
     async getChefChantierChantiers(status?: string): Promise<PortfolioProject[]> {
         const query = status && status !== 'all' ? `?status=${status}` : '';
         try {
@@ -1280,15 +1480,55 @@ class ApiClient {
         });
     }
 
-    async getChefChantierEquipes(search?: string): Promise<ChefChantierTeam[]> {
-        const query = search ? `?search=${search}` : '';
+    async getChefChantierEquipesPage(search?: string, page: number = 1): Promise<ChefChantierTeamsPageResult> {
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (page > 1) params.append('page', page.toString());
+
         try {
-            const response = await this.request<ApiResponse<{ data: ChefChantierTeam[] }>>(`/chef-chantier/equipes${query}`);
+            const response = await this.request<ApiResponse<{ data: ChefChantierTeam[]; meta: PaginationMeta }>>(
+                `/chef-chantier/equipes${params.toString() ? `?${params.toString()}` : ''}`
+            );
             const paginated = response.data as any;
-            return paginated.data || [];
+            return {
+                data: paginated.data || [],
+                meta: paginated.meta || {
+                    current_page: page,
+                    last_page: page,
+                    per_page: 10,
+                    total: paginated.data?.length || 0,
+                },
+            };
         } catch (error) {
-            return [];
+            return {
+                data: [],
+                meta: {
+                    current_page: page,
+                    last_page: page,
+                    per_page: 10,
+                    total: 0,
+                },
+            };
         }
+    }
+
+    async getChefChantierEquipes(search?: string): Promise<ChefChantierTeam[]> {
+        const result = await this.getChefChantierEquipesPage(search, 1);
+        return result.data;
+    }
+
+    async createChefChantierEquipe(data: ChefChantierTeamPayload): Promise<ApiResponse<any>> {
+        return await this.request<ApiResponse<any>>('/chef-chantier/equipes', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateChefChantierEquipe(id: number, data: Partial<ChefChantierTeamPayload>): Promise<ApiResponse<any>> {
+        return await this.request<ApiResponse<any>>(`/chef-chantier/equipes/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
     }
 
     async getChefChantierRapports(search?: string, type?: string): Promise<ChefChantierReport[]> {
@@ -1332,7 +1572,7 @@ class ApiClient {
             formData.append('description', description);
         }
 
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        const token = tokenStorage.getToken();
         const headers: Record<string, string> = {};
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
@@ -1371,7 +1611,7 @@ class ApiClient {
             formData.append('file', file);
         }
 
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        const token = tokenStorage.getToken();
         const headers: Record<string, string> = {};
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
@@ -1492,7 +1732,37 @@ class ApiClient {
         };
     }
 
-    async getSecretaireApprenant(id: number): Promise<{ apprenant: User, payments: Payment[] }> {
+    async getSecretaireCertificateRequests(params: { search?: string, status?: string, formation_id?: number, page?: number } = {}): Promise<{ data: SecretariatCertificateRequest[], meta: PaginationMeta }> {
+        const query = new URLSearchParams(params as any).toString();
+        const response = await this.request<ApiResponse<SecretariatCertificateRequest[]> & { meta: PaginationMeta }>(`/secretaire/certificate-requests?${query}`);
+        return {
+            data: Array.isArray(response.data) ? response.data : [],
+            meta: response.meta || { current_page: 1, last_page: 1, per_page: 0, total: 0 }
+        };
+    }
+
+    async approveSecretaireCertificateRequest(id: number, notes?: string) {
+        return this.request<ApiResponse<SecretariatCertificateRequest>>(`/secretaire/certificate-requests/${id}/approve`, {
+            method: 'POST',
+            body: JSON.stringify(notes ? { notes } : {}),
+        });
+    }
+
+    async rejectSecretaireCertificateRequest(id: number, notes: string) {
+        return this.request<ApiResponse<SecretariatCertificateRequest>>(`/secretaire/certificate-requests/${id}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ notes }),
+        });
+    }
+
+    async invalidateSecretaireCertificateRequest(id: number, reason: string) {
+        return this.request<ApiResponse<SecretariatCertificateRequest>>(`/secretaire/certificate-requests/${id}/invalidate`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+        });
+    }
+
+    async getSecretaireApprenant(id: string): Promise<{ apprenant: User, payments: Payment[] }> {
         const response = await this.request<ApiResponse<{ apprenant: User, payments: Payment[] }>>(`/secretaire/apprenants/${id}`);
         return response.data;
     }
@@ -1511,7 +1781,7 @@ class ApiClient {
         return response.data;
     }
 
-    async updateSecretaireApprenant(id: number, data: Partial<User>): Promise<User> {
+    async updateSecretaireApprenant(id: string, data: Partial<User>): Promise<User> {
         const response = await this.request<ApiResponse<User>>(`/secretaire/apprenants/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data)
@@ -1534,13 +1804,13 @@ class ApiClient {
         };
     }
 
-    async getSecretairePaiement(id: number): Promise<Payment> {
+    async getSecretairePaiement(id: string): Promise<Payment> {
         const response = await this.request<ApiResponse<Payment>>(`/secretaire/paiements/${id}`);
         return response.data;
     }
 
     async validateSecretairePaiement(
-        id: number,
+        id: string,
         data?: FormData | { notes?: string; amount?: number; method?: string; reference?: string; proof?: File | null }
     ): Promise<Payment> {
         const body = data instanceof FormData ? data : new FormData();
@@ -1561,7 +1831,7 @@ class ApiClient {
         return response.data;
     }
 
-    async rejectSecretairePaiement(id: number, reason: string): Promise<Payment> {
+    async rejectSecretairePaiement(id: string, reason: string): Promise<Payment> {
         const response = await this.request<ApiResponse<Payment>>(`/secretaire/paiements/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
@@ -1601,9 +1871,61 @@ class ApiClient {
         };
     }
 
-    async downloadSecretaireRecu(id: number): Promise<any> {
+    async ignoreReceiptWarning(paymentId: string): Promise<ApiResponse<any>> {
+        return this.request<ApiResponse<any>>(`/secretaire/recus/${paymentId}/ignore`, {
+            method: 'POST',
+        });
+    }
+
+    async downloadSecretaireRecu(id: string): Promise<any> {
         const response = await this.request<ApiResponse<any>>(`/secretaire/recus/${id}/download`);
         return response.data;
+    }
+
+    // Contact Management (Secretaire)
+    async getSecretaireContacts(params?: any): Promise<any> {
+        const queryString = params ? '?' + new URLSearchParams(params).toString() : '';
+        const response = await this.request<ApiResponse<any>>(`/secretaire/contacts${queryString}`);
+        return response;
+    }
+
+    async getSecretaireContact(id: number): Promise<any> {
+        const response = await this.request<ApiResponse<any>>(`/secretaire/contacts/${id}`);
+        return response.data;
+    }
+
+    async updateSecretaireContact(id: number, data: any): Promise<any> {
+        const response = await this.request<ApiResponse<any>>(`/secretaire/contacts/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+        return response.data;
+    }
+
+    async deleteSecretaireContact(id: number): Promise<any> {
+        const response = await this.request<ApiResponse<any>>(`/secretaire/contacts/${id}`, {
+            method: 'DELETE',
+        });
+        return response.data;
+    }
+
+    async respondToSecretaireQuote(id: number, formData: FormData): Promise<any> {
+        const token = tokenStorage.getToken();
+        const response = await fetch(`${API_BASE_URL}/secretaire/contacts/${id}/respond`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json',
+            },
+            body: formData,
+        });
+        
+        if (!response.ok) {
+            throw new Error('Erreur lors de l\'envoi de la réponse');
+        }
+        
+        const data = await response.json();
+        return data.data;
     }
 }
 
@@ -1690,6 +2012,22 @@ export interface TeacherApprenant {
     avatar?: string;
 }
 
+export interface FormateurFormationSession {
+    id: number;
+    formation_id: number;
+    formateur_id?: number | null;
+    start_date: string;
+    end_date: string;
+    start_time?: string | null;
+    end_time?: string | null;
+    location?: string | null;
+    max_students?: number;
+    status: 'planned' | 'ongoing' | 'completed' | 'cancelled';
+    enrollments_count?: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
 /**
  * Retourne le nom lisible d'un rôle
  */
@@ -1739,6 +2077,43 @@ export interface ChefChantierUpdate {
     status: string;
 }
 
+export interface ChefChantierDashboardData {
+    stats: {
+        chantiersActifs: number;
+        equipes: number;
+        avancements: number;
+        alertes: number;
+        total_chantiers?: number;
+        chantiers_en_cours?: number;
+        chantiers_termines?: number;
+        chantiers_en_pause?: number;
+    };
+    projectsData: Array<{
+        name: string;
+        completed: number;
+        inProgress: number;
+        pending: number;
+    }>;
+    statusData: Array<{
+        name: string;
+        value: number;
+    }>;
+    recentProjects: Array<{
+        id: number;
+        name: string;
+        progress: number;
+        team: number;
+        status: string;
+    }>;
+    recentUpdates: Array<{
+        id: number;
+        project: string;
+        update: string;
+        date: string;
+        author: string;
+    }>;
+}
+
 export interface ChefChantierAvancementPayload {
     project_id: number;
     title: string;
@@ -1758,6 +2133,21 @@ export interface ChefChantierTeam {
     specialization: string;
     projects: number;
     status: string;
+}
+
+export interface ChefChantierTeamPayload {
+    name: string;
+    leader_name: string;
+    specialization?: string;
+    phone?: string;
+    email?: string;
+    members_count?: number;
+    status?: 'active' | 'inactive';
+}
+
+export interface ChefChantierTeamsPageResult {
+    data: ChefChantierTeam[];
+    meta: PaginationMeta;
 }
 
 export interface ChefChantierReport {
@@ -1783,6 +2173,137 @@ export interface ChefChantierMessage {
     time: string; // HH:MM
     read: boolean;
     type: 'received' | 'sent';
+}
+
+export interface IssuedCertificate {
+    id: string;
+    reference: string;
+    formation: string;
+    completed_at?: string | null;
+    completedDate?: string;
+    issued_at?: string | null;
+    issuedDate?: string;
+    instructor?: string | null;
+    download_available: boolean;
+    verification_path: string;
+    verification_url: string;
+}
+
+export interface PendingCertificate {
+    id: number | string;
+    formation: string;
+    expectedDate: string;
+    expected_date?: string | null;
+    progress: number;
+    status: string;
+    status_label: string;
+}
+
+export interface LearnerCertificateRequestItem {
+    id: number | string;
+    enrollment_id: number;
+    formation: string;
+    completed_at?: string | null;
+    completedDate?: string;
+    status: 'eligible' | 'pending' | 'approved' | 'rejected' | 'invalidated';
+    status_label: string;
+    requested_at?: string | null;
+    requestedDate?: string;
+    requested_by_name?: string | null;
+    decision_at?: string | null;
+    decisionDate?: string;
+    decision_notes?: string | null;
+    invalidation_reason?: string | null;
+    certificate_reference?: string | null;
+}
+
+export interface LearnerCertificatesResponse {
+    issued: IssuedCertificate[];
+    pending: PendingCertificate[];
+    requests: LearnerCertificateRequestItem[];
+}
+
+export interface PublicCertificateVerification {
+    valid: boolean;
+    status: string;
+    status_label: string;
+    reference: string;
+    learner_name: string;
+    formation: string;
+    instructor?: string | null;
+    issued_at?: string | null;
+    completed_at?: string | null;
+    revoked_at?: string | null;
+    revoked_reason?: string | null;
+    verification_path: string;
+    verification_url: string;
+    session: {
+        start_date?: string | null;
+        end_date?: string | null;
+        location?: string | null;
+    };
+}
+
+export interface SecretariatCertificateRequest {
+    id: number;
+    status: 'pending' | 'approved' | 'rejected' | 'invalidated';
+    status_label: string;
+    requested_at?: string | null;
+    requestedDate?: string;
+    requested_by_name?: string | null;
+    decision_at?: string | null;
+    decisionDate?: string;
+    decision_notes?: string | null;
+    invalidation_reason?: string | null;
+    invalidated_at?: string | null;
+    invalidatedDate?: string;
+    learner_name: string;
+    learner_email?: string | null;
+    formation: string;
+    formation_id?: number | null;
+    session_id?: number | null;
+    session_start_date?: string | null;
+    session_end_date?: string | null;
+    completed_at?: string | null;
+    completedDate?: string;
+    enrollment_id?: number | null;
+    enrollment_status?: string | null;
+    certificate_reference?: string | null;
+    certificate_generated?: boolean;
+    certificate_revoked_at?: string | null;
+    verification_path?: string | null;
+    can_approve: boolean;
+    can_reject: boolean;
+    can_invalidate: boolean;
+}
+
+export interface FormateurCertificateEnrollment {
+    enrollment_id: number;
+    learner_name: string;
+    learner_email?: string | null;
+    learner_phone?: string | null;
+    formation: string;
+    formation_id?: number | null;
+    session_id?: number | null;
+    session_start_date?: string | null;
+    session_end_date?: string | null;
+    session_location?: string | null;
+    enrollment_status: string;
+    completed_at?: string | null;
+    completedDate?: string;
+    workflow_status: 'generated' | 'pending_secretary' | 'approved' | 'rejected' | 'invalidated' | 'ready_for_request' | 'in_progress';
+    workflow_label: string;
+    request_id?: number | null;
+    requested_at?: string | null;
+    requestedDate?: string;
+    requested_by_name?: string | null;
+    decision_at?: string | null;
+    decisionDate?: string;
+    decision_notes?: string | null;
+    invalidation_reason?: string | null;
+    certificate_reference?: string | null;
+    verification_path?: string | null;
+    can_request: boolean;
 }
 
 // ===========================================
@@ -1858,19 +2379,33 @@ export async function getApprenantFormations() {
  * Get apprenant certificats
  */
 export async function getApprenantCertificats() {
-    return api.request<ApiResponse<any>>('/apprenant/certificats');
+    return api.request<ApiResponse<LearnerCertificatesResponse>>('/apprenant/certificats');
 }
 
 /**
  * Download certificat
  */
-export async function downloadCertificat(certificatId: number) {
-    const response = await fetch(`${API_BASE_URL}/apprenant/certificats/${certificatId}/download`, {
+export async function downloadCertificat(reference: string) {
+    const response = await fetch(`${API_BASE_URL}/apprenant/certificats/${encodeURIComponent(reference)}/download`, {
         headers: {
-            'Authorization': `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}`,
+            'Authorization': `Bearer ${tokenStorage.getToken() || ''}`,
         },
     });
+
+    if (!response.ok) {
+        throw new Error('Impossible de télécharger le certificat.');
+    }
+
     return response.blob();
+}
+
+/**
+ * Verify a certificate from the public website
+ */
+export async function verifyPublicCertificate(reference: string) {
+    return api.request<ApiResponse<PublicCertificateVerification>>(
+        `/public/certificats/verify/${encodeURIComponent(reference)}`
+    );
 }
 
 /**
@@ -1966,6 +2501,18 @@ export async function updateApprenantProfil(data: any) {
 export async function getFormateurApprenants(params?: { search?: string; formation?: string }) {
     const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
     return api.request<ApiResponse<any[]>>(`/formateur/apprenants${query}`);
+}
+
+export async function getFormateurCertificats(params?: { search?: string }) {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return api.request<ApiResponse<FormateurCertificateEnrollment[]>>(`/formateur/certificats${query}`);
+}
+
+export async function requestFormateurCertificat(enrollmentId: number, notes?: string) {
+    return api.request<ApiResponse<FormateurCertificateEnrollment>>(`/formateur/certificats/enrollments/${enrollmentId}/request`, {
+        method: 'POST',
+        body: JSON.stringify(notes ? { notes } : {}),
+    });
 }
 
 /**
@@ -2112,7 +2659,7 @@ export async function createManualReceipt(data: {
 /**
  * Secrétaire - Preview receipt PDF
  */
-export async function previewReceiptPDF(paymentId: number) {
+export async function previewReceiptPDF(paymentId: string | number) {
     const blob = await fetchAuthenticatedFile(`/secretaire/recus/${paymentId}/pdf`);
     openBlobInNewTab(blob);
 }
@@ -2120,7 +2667,7 @@ export async function previewReceiptPDF(paymentId: number) {
 /**
  * Secrétaire - Download receipt PDF
  */
-export async function downloadReceiptPDF(paymentId: number) {
+export async function downloadReceiptPDF(paymentId: string | number) {
     const blob = await fetchAuthenticatedFile(`/secretaire/recus/${paymentId}/pdf?download=1`);
     triggerBlobDownload(blob, `recu-${paymentId}.pdf`);
 }

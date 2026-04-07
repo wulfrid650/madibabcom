@@ -2,6 +2,16 @@ import React from 'react';
 import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
+import Script from 'next/script';
+import {
+  Award,
+  CheckCircle2,
+  ClipboardCheck,
+  Construction,
+  HardHat,
+  MapPin,
+  ShieldCheck,
+} from 'lucide-react';
 import Section from '@/components/ui/Section';
 import { getYearsOfExperience } from '@/lib/company-info';
 
@@ -9,6 +19,8 @@ export const metadata: Metadata = {
   title: 'Nos Services | MBC',
   description: 'Découvrez nos services en Architecture, Construction BTP, Génie Civil et Accompagnement de projet.',
 };
+
+const TRUSTPILOT_REVIEW_URL = 'https://fr.trustpilot.com/review/madibabc.com';
 
 export default function ServicesPage() {
   return (
@@ -25,15 +37,15 @@ export default function ServicesPage() {
           {/* Réassurance */}
           <div className="flex flex-wrap gap-6 mt-10 text-sm">
             <div className="flex items-center gap-2">
-              <span className="text-madiba-red text-lg">🏆</span>
+              <Award className="h-5 w-5 text-madiba-red" aria-hidden="true" />
               <span className="text-gray-300">+{getYearsOfExperience()} ans d&apos;expérience</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-madiba-red text-lg">👷</span>
+              <HardHat className="h-5 w-5 text-madiba-red" aria-hidden="true" />
               <span className="text-gray-300">Équipe qualifiée</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-madiba-red text-lg">✅</span>
+              <ShieldCheck className="h-5 w-5 text-madiba-red" aria-hidden="true" />
               <span className="text-gray-300">Suivi technique rigoureux</span>
             </div>
           </div>
@@ -45,7 +57,7 @@ export default function ServicesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <span className="text-madiba-red font-semibold text-sm uppercase tracking-wider">01</span>
-            <h2 className="text-3xl md:text-4xl font-bold text-madiba-black dark:text-white mt-2 mb-4">Architecture & Études</h2>
+            <h2 id="architecture-etudes" className="text-3xl md:text-4xl font-bold text-madiba-black dark:text-white mt-2 mb-4 scroll-mt-32">Architecture & Études</h2>
             <p className="text-lg text-gray-600 dark:text-gray-400 mb-6">
               Conceptions modernes et fonctionnelles, respectant les normes les plus strictes.
             </p>
@@ -98,7 +110,7 @@ export default function ServicesPage() {
           </div>
           <div className="order-1 md:order-2">
             <span className="text-madiba-red font-semibold text-sm uppercase tracking-wider">02</span>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mt-2 mb-4">Construction & BTP</h2>
+            <h2 id="construction-btp" className="text-3xl md:text-4xl font-bold text-white mt-2 mb-4 scroll-mt-32">Construction & BTP</h2>
             <p className="text-lg text-gray-300 mb-6">
               Exécution rigoureuse pour des ouvrages durables. Réalisation intégrale de vos chantiers.
             </p>
@@ -137,7 +149,7 @@ export default function ServicesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <span className="text-madiba-red font-semibold text-sm uppercase tracking-wider">03</span>
-            <h2 className="text-3xl md:text-4xl font-bold text-madiba-black dark:text-white mt-2 mb-4">Génie Civil</h2>
+            <h2 id="genie-civil" className="text-3xl md:text-4xl font-bold text-madiba-black dark:text-white mt-2 mb-4 scroll-mt-32">Génie Civil</h2>
             <p className="text-lg text-gray-600 dark:text-gray-400 mb-6">
               Solutions d&apos;ingénierie pour infrastructures publiques et privées.
             </p>
@@ -195,22 +207,30 @@ export default function ServicesPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
             <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-6 rounded-xl border border-gray-700 hover:border-madiba-red/50 transition-colors group">
-              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform">📍</div>
+              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <MapPin className="h-7 w-7 text-madiba-red" aria-hidden="true" />
+              </div>
               <h3 className="font-bold text-white mb-2 text-lg">Choix du Terrain</h3>
               <p className="text-sm text-gray-400">Conseil et expertise pour le choix optimal de votre site.</p>
             </div>
             <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-6 rounded-xl border border-gray-700 hover:border-madiba-red/50 transition-colors group">
-              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform">🧱</div>
+              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Construction className="h-7 w-7 text-madiba-red" aria-hidden="true" />
+              </div>
               <h3 className="font-bold text-white mb-2 text-lg">Achat Matériaux</h3>
               <p className="text-sm text-gray-400">Sélection et fourniture de matériaux de qualité.</p>
             </div>
             <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-6 rounded-xl border border-gray-700 hover:border-madiba-red/50 transition-colors group">
-              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform">📋</div>
+              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <ClipboardCheck className="h-7 w-7 text-madiba-red" aria-hidden="true" />
+              </div>
               <h3 className="font-bold text-white mb-2 text-lg">Permis de Bâtir</h3>
               <p className="text-sm text-gray-400">Assistance complète dans les démarches administratives.</p>
             </div>
             <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-6 rounded-xl border border-gray-700 hover:border-madiba-red/50 transition-colors group">
-              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform">✅</div>
+              <div className="w-14 h-14 rounded-full bg-madiba-red/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <CheckCircle2 className="h-7 w-7 text-madiba-red" aria-hidden="true" />
+              </div>
               <h3 className="font-bold text-white mb-2 text-lg">Contrôle Technique</h3>
               <p className="text-sm text-gray-400">Suivi rigoureux de la conformité des travaux.</p>
             </div>
@@ -227,7 +247,11 @@ export default function ServicesPage() {
             La satisfaction de nos clients est notre meilleure carte de visite.
           </p>
 
-          {/* Trustpilot Widget */}
+          <Script
+            src="https://widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js"
+            strategy="afterInteractive"
+          />
+
           <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-8 border border-gray-200 dark:border-gray-700 mb-8">
             <div className="flex items-center justify-center gap-3 mb-6">
               <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none">
@@ -235,66 +259,22 @@ export default function ServicesPage() {
               </svg>
               <span className="text-2xl font-bold text-madiba-black dark:text-white">Trustpilot</span>
             </div>
-            <div className="flex justify-center gap-1 mb-4">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <svg key={star} className="w-8 h-8 text-[#00B67A]" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-                </svg>
-              ))}
-            </div>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Note basée sur les avis de nos clients vérifiés
+            <p className="text-gray-600 dark:text-gray-400 mb-6 text-center">
+              Consultez ou déposez un avis sur notre page officielle Trustpilot.
             </p>
-            <a 
-              href="https://www.trustpilot.com/" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-block px-6 py-3 bg-[#00B67A] text-white font-semibold rounded-lg hover:bg-[#00a06a] transition-colors"
-            >
-              Voir tous les avis sur Trustpilot
-            </a>
-          </div>
 
-          {/* Exemple d'avis */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 text-left">
-              <div className="flex gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <svg key={star} className="w-5 h-5 text-[#00B67A]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-                  </svg>
-                ))}
-              </div>
-              <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                &quot;Équipe professionnelle et réactive. Notre villa a été livrée dans les délais avec une finition impeccable.&quot;
-              </p>
-              <p className="font-semibold text-madiba-black dark:text-white text-sm">— Client vérifié</p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 text-left">
-              <div className="flex gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <svg key={star} className="w-5 h-5 text-[#00B67A]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-                  </svg>
-                ))}
-              </div>
-              <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                &quot;Excellent accompagnement du début à la fin. Je recommande MBC pour tout projet de construction.&quot;
-              </p>
-              <p className="font-semibold text-madiba-black dark:text-white text-sm">— Client vérifié</p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 text-left">
-              <div className="flex gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <svg key={star} className="w-5 h-5 text-[#00B67A]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-                  </svg>
-                ))}
-              </div>
-              <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                &quot;Très satisfait des travaux de génie civil. Qualité et respect des normes au rendez-vous.&quot;
-              </p>
-              <p className="font-semibold text-madiba-black dark:text-white text-sm">— Client vérifié</p>
+            <div
+              className="trustpilot-widget"
+              data-locale="fr-FR"
+              data-template-id="56278e9abfbbba0bdcd568bc"
+              data-businessunit-id="69d15fd1bf61deb19eec400e"
+              data-style-height="52px"
+              data-style-width="100%"
+              data-token="fb1ed5ca-3ba2-4483-8908-9d3054f49767"
+            >
+              <a href={TRUSTPILOT_REVIEW_URL} target="_blank" rel="noopener">
+                Trustpilot
+              </a>
             </div>
           </div>
         </div>

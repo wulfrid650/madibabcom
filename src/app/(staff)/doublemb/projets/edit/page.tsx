@@ -1,107 +1,197 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
+    AlertCircle,
     ArrowLeft,
-    Save,
     Building2,
-    MapPin,
     Calendar,
-    Users,
     DollarSign,
     Briefcase,
-    AlertCircle
+    HardHat,
+    Loader2,
+    MapPin,
+    Save,
 } from 'lucide-react';
+import {
+    getPortfolioProjectAdmin,
+    getQuoteRequestsForProjectLink,
+    getUsers,
+    updatePortfolioProject,
+    type PortfolioProjectAdmin,
+    type QuoteRequestLinkOption,
+    type User,
+} from '@/lib/admin-api';
+
+type ProjectFormState = {
+    title: string;
+    client_name: string;
+    linked_quote_request_id: string;
+    chef_chantier_id: string;
+    location: string;
+    status: 'planned' | 'in_progress' | 'on_hold' | 'completed';
+    progress: string;
+    start_date: string;
+    expected_end_date: string;
+    budget: string;
+    description: string;
+};
+
+const initialFormState: ProjectFormState = {
+    title: '',
+    client_name: '',
+    linked_quote_request_id: '',
+    chef_chantier_id: '',
+    location: '',
+    status: 'planned',
+    progress: '0',
+    start_date: '',
+    expected_end_date: '',
+    budget: '',
+    description: '',
+};
+
+const statusOptions: Array<{ value: ProjectFormState['status']; label: string }> = [
+    { value: 'planned', label: 'Planifie' },
+    { value: 'in_progress', label: 'En cours' },
+    { value: 'on_hold', label: 'En pause' },
+    { value: 'completed', label: 'Termine' },
+];
+
+function normalizeStatus(status?: string): ProjectFormState['status'] {
+    if (status === 'in_progress' || status === 'on_hold' || status === 'completed') {
+        return status;
+    }
+
+    return 'planned';
+}
+
+function mapProjectToForm(project: PortfolioProjectAdmin): ProjectFormState {
+    return {
+        title: project.title || '',
+        client_name: project.client_name || project.client || '',
+        linked_quote_request_id: project.linked_quote_request_id ? String(project.linked_quote_request_id) : '',
+        chef_chantier_id: project.chef_chantier_public_id || (project.chef_chantier_id ? String(project.chef_chantier_id) : ''),
+        location: project.location || '',
+        status: normalizeStatus(project.status),
+        progress: String(project.progress ?? 0),
+        start_date: project.start_date || '',
+        expected_end_date: project.expected_end_date || '',
+        budget: project.budget || '',
+        description: project.description || '',
+    };
+}
 
 export default function EditProjectPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const projectId = searchParams.get('id');
+    const projectId = useMemo(() => Number(searchParams.get('id')), [searchParams]);
+
+    const [formData, setFormData] = useState<ProjectFormState>(initialFormState);
+    const [chefOptions, setChefOptions] = useState<User[]>([]);
+    const [quoteOptions, setQuoteOptions] = useState<QuoteRequestLinkOption[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Initial Form State
-    const [formData, setFormData] = useState({
-        title: '',
-        client_name: '',
-        chef_chantier: '',
-        location: '',
-        status: 'en_cours',
-        progress: 0,
-        start_date: '',
-        estimated_end_date: '',
-        budget: 0,
-        spent: 0,
-        team_size: 0,
-        description: ''
-    });
-
     useEffect(() => {
-        if (!projectId) {
-            setError('ID du projet manquant');
-            setIsLoading(false);
-            return;
-        }
-
-        // Mock Fetch Data simulating API delay
-        const fetchProject = async () => {
-            try {
-                await new Promise(resolve => setTimeout(resolve, 500));
-
-                // Mock data logic based on ID (simplified)
-                // In a real app, this would be an API call: api.getProject(projectId)
-                setFormData({
-                    title: 'Villa Prestige Bastos',
-                    client_name: 'Paul Biya (Biya Construction SARL)',
-                    chef_chantier: 'Jean Kamga',
-                    location: 'Bastos, Yaoundé',
-                    status: 'en_cours',
-                    progress: 65,
-                    start_date: '2025-10-01',
-                    estimated_end_date: '2026-04-01',
-                    budget: 150000000,
-                    spent: 87500000,
-                    team_size: 12,
-                    description: 'Construction d\'une villa haut standing avec piscine et jardins.'
-                });
-
+        const load = async () => {
+            if (!projectId || Number.isNaN(projectId)) {
+                setError('ID du projet manquant ou invalide.');
                 setIsLoading(false);
-            } catch (err) {
-                setError('Impossible de charger le projet');
+                return;
+            }
+
+            try {
+                const [projectResponse, chefsResponse, quotesResponse] = await Promise.all([
+                    getPortfolioProjectAdmin(projectId),
+                    getUsers({ role: 'chef_chantier', per_page: 100 }),
+                    getQuoteRequestsForProjectLink({ per_page: 200 }),
+                ]);
+
+                if (!projectResponse.success || !projectResponse.data) {
+                    setError(projectResponse.message || 'Impossible de charger le projet.');
+                    return;
+                }
+
+                setFormData(mapProjectToForm(projectResponse.data));
+                setChefOptions(chefsResponse.data || []);
+                const nextQuoteOptions = quotesResponse.data || [];
+                const linkedQuote = projectResponse.data.linked_quote_request;
+                setQuoteOptions(
+                    linkedQuote && !nextQuoteOptions.some((quote) => quote.id === linkedQuote.id)
+                        ? [linkedQuote, ...nextQuoteOptions]
+                        : nextQuoteOptions
+                );
+            } catch (loadError) {
+                console.error(loadError);
+                setError('Impossible de charger le projet.');
+            } finally {
                 setIsLoading(false);
             }
         };
 
-        fetchProject();
+        void load();
     }, [projectId]);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = event.target;
+        setFormData((prev) => ({
             ...prev,
-            [name]: value
+            [name]: value,
         }));
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleQuoteChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const { value } = event.target;
+        const selectedQuote = quoteOptions.find((quote) => String(quote.id) === value);
+
+        setFormData((prev) => ({
+            ...prev,
+            linked_quote_request_id: value,
+            client_name: prev.client_name || !selectedQuote
+                ? prev.client_name
+                : (selectedQuote.company || selectedQuote.name),
+        }));
+    };
+
+    const handleSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!projectId || Number.isNaN(projectId)) {
+            setError('ID du projet manquant ou invalide.');
+            return;
+        }
+
         setIsSaving(true);
+        setError(null);
 
         try {
-            // Mock Save Request
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const response = await updatePortfolioProject(projectId, {
+                title: formData.title.trim(),
+                client: formData.client_name.trim() || undefined,
+                linked_quote_request_id: formData.linked_quote_request_id || null,
+                description: formData.description.trim() || undefined,
+                location: formData.location.trim() || undefined,
+                status: formData.status,
+                progress: Number(formData.progress || 0),
+                start_date: formData.start_date || undefined,
+                expected_end_date: formData.expected_end_date || undefined,
+                budget: formData.budget.trim() || undefined,
+                chef_chantier_id: formData.chef_chantier_id || null,
+            });
 
-            console.log('Project Updated:', { id: projectId, ...formData });
+            if (!response.success) {
+                setError(response.message || 'Erreur lors de la sauvegarde.');
+                return;
+            }
 
-            // Redirect back to list
             router.push('/doublemb/projets');
             router.refresh();
-
-        } catch (err) {
-            setError('Erreur lors de la sauvegarde');
+        } catch (saveError) {
+            console.error(saveError);
+            setError('Erreur lors de la sauvegarde.');
         } finally {
             setIsSaving(false);
         }
@@ -110,12 +200,12 @@ export default function EditProjectPage() {
     if (isLoading) {
         return (
             <div className="flex justify-center items-center h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+                <Loader2 className="h-12 w-12 animate-spin text-red-600" />
             </div>
         );
     }
 
-    if (error) {
+    if (error && !formData.title) {
         return (
             <div className="p-6 text-center">
                 <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
@@ -132,7 +222,6 @@ export default function EditProjectPage() {
 
     return (
         <div className="max-w-4xl mx-auto space-y-6">
-            {/* Header */}
             <div className="flex items-center gap-4">
                 <Link
                     href="/doublemb/projets"
@@ -142,24 +231,27 @@ export default function EditProjectPage() {
                 </Link>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Modifier le projet</h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Édition de : {formData.title}
-                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Mettre a jour les informations vraiment utilisees dans l'espace chantier.</p>
                 </div>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Main Info Card */}
+                {error && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-600 dark:text-red-400">
+                        {error}
+                    </div>
+                )}
+
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                         <Building2 className="h-5 w-5 mr-2 text-red-500" />
-                        Informations Générales
+                        Informations generales
                     </h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="col-span-2">
+                        <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Nom du projet
+                                Nom du projet *
                             </label>
                             <input
                                 type="text"
@@ -173,17 +265,37 @@ export default function EditProjectPage() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Client (Entreprise)
+                                Client
                             </label>
                             <input
                                 type="text"
                                 name="client_name"
-                                disabled
-                                readOnly
                                 value={formData.client_name}
-                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-600 text-gray-500 cursor-not-allowed"
-                                title="Modification du client non disponible dans cette version mock"
+                                onChange={handleChange}
+                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Devis lié
+                            </label>
+                            <select
+                                name="linked_quote_request_id"
+                                value={formData.linked_quote_request_id}
+                                onChange={handleQuoteChange}
+                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
+                            >
+                                <option value="">Aucun devis lié</option>
+                                {quoteOptions.map((quote) => (
+                                    <option key={quote.id} value={quote.id}>
+                                        {quote.quote_number || `Demande #${quote.id}`} - {quote.company || quote.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Optionnel. Le projet peut exister sans devis rattaché.
+                            </p>
                         </div>
 
                         <div>
@@ -202,7 +314,7 @@ export default function EditProjectPage() {
                             </div>
                         </div>
 
-                        <div className="col-span-2">
+                        <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Description
                             </label>
@@ -217,11 +329,10 @@ export default function EditProjectPage() {
                     </div>
                 </div>
 
-                {/* Status & Progress */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                         <Briefcase className="h-5 w-5 mr-2 text-blue-500" />
-                        État d'avancement
+                        Organisation
                     </h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -235,12 +346,34 @@ export default function EditProjectPage() {
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             >
-                                <option value="planifie">Planifié</option>
-                                <option value="en_cours">En cours</option>
-                                <option value="en_pause">En pause</option>
-                                <option value="termine">Terminé</option>
-                                <option value="annule">Annulé</option>
+                                {statusOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {option.label}
+                                    </option>
+                                ))}
                             </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Chef de chantier
+                            </label>
+                            <div className="relative">
+                                <HardHat className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <select
+                                    name="chef_chantier_id"
+                                    value={formData.chef_chantier_id}
+                                    onChange={handleChange}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
+                                >
+                                    <option value="">Aucun chef affecte</option>
+                                    {chefOptions.map((chef) => (
+                                        <option key={chef.id} value={chef.id}>
+                                            {chef.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <div>
@@ -249,56 +382,27 @@ export default function EditProjectPage() {
                             </label>
                             <input
                                 type="number"
-                                name="progress"
                                 min="0"
                                 max="100"
+                                name="progress"
                                 value={formData.progress}
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             />
                         </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Chef de chantier
-                            </label>
-                            <input
-                                type="text"
-                                name="chef_chantier"
-                                value={formData.chef_chantier}
-                                onChange={handleChange}
-                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Taille de l'équipe
-                            </label>
-                            <div className="relative">
-                                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                <input
-                                    type="number"
-                                    name="team_size"
-                                    value={formData.team_size}
-                                    onChange={handleChange}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                />
-                            </div>
-                        </div>
                     </div>
                 </div>
 
-                {/* Planning & Budget */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                         <Calendar className="h-5 w-5 mr-2 text-green-500" />
-                        Planning & Budget
+                        Planning et budget
                     </h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Date de début
+                                Date de debut
                             </label>
                             <input
                                 type="date"
@@ -308,14 +412,15 @@ export default function EditProjectPage() {
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             />
                         </div>
+
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Date de fin estimée
+                                Date de fin estimee
                             </label>
                             <input
                                 type="date"
-                                name="estimated_end_date"
-                                value={formData.estimated_end_date}
+                                name="expected_end_date"
+                                value={formData.expected_end_date}
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             />
@@ -323,30 +428,15 @@ export default function EditProjectPage() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Budget Total (FCFA)
+                                Budget estime (FCFA)
                             </label>
                             <div className="relative">
                                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                                 <input
                                     type="number"
+                                    min="0"
                                     name="budget"
                                     value={formData.budget}
-                                    onChange={handleChange}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Dépenses à ce jour (FCFA)
-                            </label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                <input
-                                    type="number"
-                                    name="spent"
-                                    value={formData.spent}
                                     onChange={handleChange}
                                     className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                                 />
@@ -355,20 +445,20 @@ export default function EditProjectPage() {
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-4">
+                <div className="flex items-center justify-end gap-3">
                     <Link
                         href="/doublemb/projets"
-                        className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
                     >
                         Annuler
                     </Link>
                     <button
                         type="submit"
                         disabled={isSaving}
-                        className="flex items-center px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                        className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
                     >
-                        <Save className="h-4 w-4 mr-2" />
-                        {isSaving ? 'Enregistrement...' : 'Enregistrer les modifications'}
+                        {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                        {isSaving ? 'Enregistrement...' : 'Enregistrer'}
                     </button>
                 </div>
             </form>

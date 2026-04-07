@@ -39,7 +39,7 @@ export default function ClientDashboardPage() {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/login?redirect=/client');
+      router.push('/connexion?redirect=/client');
       return;
     }
     
@@ -59,7 +59,7 @@ export default function ClientDashboardPage() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          router.push('/login?redirect=/client');
+          router.push('/connexion?redirect=/client');
           return;
         }
         throw new Error('Erreur lors du chargement des données');

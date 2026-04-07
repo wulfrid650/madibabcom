@@ -5,7 +5,7 @@ import { AlertTriangle, Download, Eye, FileText, Plus, Search } from 'lucide-rea
 import { api, createManualReceipt, downloadReceiptPDF, previewReceiptPDF } from '@/lib/api';
 
 interface ReceiptRow {
-  id: number;
+  id: string;
   number: string;
   reference: string;
   date?: string;
@@ -110,6 +110,21 @@ export default function RecusPage() {
     }
   };
 
+  const handleIgnore = async (paymentId: string) => {
+    if (!confirm('Voulez-vous vraiment ignorer les alertes pour ce reçu ? Il sera considéré comme complet.')) {
+      return;
+    }
+
+    try {
+      await api.ignoreReceiptWarning(paymentId);
+      await fetchRecus();
+    } catch (error) {
+      console.error(error);
+      alert('Erreur lors de l\'opération.');
+    }
+  };
+
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -179,14 +194,22 @@ export default function RecusPage() {
                           <Eye className="h-4 w-4" />
                           Voir PDF
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => downloadReceiptPDF(receipt.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                        >
-                          <Download className="h-4 w-4" />
-                          Télécharger
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadReceiptPDF(receipt.id)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          >
+                            <Download className="h-4 w-4" />
+                            Télécharger
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleIgnore(receipt.id)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                            title="Ignorer l'alerte et marquer comme complet"
+                          >
+                            Ignorer
+                          </button>
                       </div>
                     </div>
                   </div>

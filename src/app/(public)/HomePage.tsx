@@ -5,8 +5,10 @@ import Link from 'next/link';
 import DynamicHero from '@/components/ui/DynamicHero';
 import Section from '@/components/ui/Section';
 import Card from '@/components/ui/Card';
+import Accordion from '@/components/ui/Accordion';
 import TestimonialCarousel from '@/components/ui/TestimonialCarousel';
 import { useHomepageData } from '@/hooks/useApiData';
+import { HelpCircle, ChevronRight } from 'lucide-react';
 
 // Composant pour afficher les statistiques
 function StatsGrid({ stats }: { stats: { projects_completed: number; years_experience: number; happy_clients?: number; trained_students?: number; } }) {
@@ -76,7 +78,7 @@ function DynamicServices({ services }: { services: Array<{ id: number; title: st
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-8 items-stretch">
       {services.slice(0, 4).map((service) => (
-        <Link key={service.id} href={`/services/${service.slug}`}>
+        <Link key={service.id} href={`/services#${service.slug}`}>
           <Card 
             title={service.title} 
             description={service.short_description}
@@ -117,7 +119,7 @@ export default function HomePage() {
       <Section theme="white">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-madiba-black dark:text-white mb-4">Nos Domaines d&apos;Expertise</h2>
-          <p className="text-gray-600 dark:text-gray-400 max-w-2xl mx-auto whitespace-nowrap">
+          <p className="text-gray-600 dark:text-gray-400 max-w-4xl mx-auto md:whitespace-nowrap">
             De la conception architecturale à la réalisation d'ouvrages complexes, nous maîtrisons chaque étape.
           </p>
         </div>
@@ -254,7 +256,7 @@ export default function HomePage() {
               </ul>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link 
-                  href="/client/login" 
+                  href="/connexion" 
                   className="inline-flex items-center justify-center gap-2 bg-madiba-red text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-600 transition-colors shadow-lg shadow-madiba-red/25"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -315,6 +317,55 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* FAQ Preview Section */}
+      <Section theme="white">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 items-center">
+          <div className="lg:col-span-1 space-y-6">
+            <div>
+              <div className="inline-flex items-center justify-center p-3 bg-madiba-red/10 rounded-2xl mb-6">
+                <HelpCircle className="w-8 h-8 text-madiba-red" />
+              </div>
+              <h2 className="text-4xl font-extrabold mb-4 text-madiba-black dark:text-white leading-tight">
+                Questions <span className="text-madiba-red">Fréquemment</span> Posées
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
+                Découvrez les réponses aux questions courantes sur nos services de construction, nos programmes de formation et le suivi de vos projets en ligne.
+              </p>
+            </div>
+            <Link 
+              href="/faq" 
+              className="inline-flex items-center gap-2 px-8 py-3.5 bg-madiba-black dark:bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-900 dark:hover:bg-gray-700 transition-all group shadow-lg"
+            >
+              Voir toutes les FAQ
+              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </Link>
+          </div>
+          
+          <div className="lg:col-span-2">
+            <Accordion 
+              items={[
+                {
+                  title: "Comment initier un projet de construction avec MBC ?",
+                  content: "Pour démarrer votre projet, vous pouvez nous contacter via notre formulaire de devis en ligne ou par WhatsApp. Un ingénieur prendra contact avec vous pour une première étude de faisabilité."
+                },
+                {
+                  title: "Quels sont les modes de paiement acceptés ?",
+                  content: "Nous acceptons les paiements par Mobile Money (Orange Money, MTN MoMo), virements bancaires et paiements directs en agence."
+                },
+                {
+                  title: "Comment puis-je suivre l'évolution de mon chantier à distance ?",
+                  content: "Une fois votre contrat signé, vous recevez des accès à votre Espace Client. Vous y trouverez des photos régulières du chantier et l'état d'avancement réel."
+                },
+                {
+                  title: "Proposez-vous des formations certifiantes ?",
+                  content: "Oui, MBC forme aux logiciels de CAO/DAO (AutoCAD, Revit, ArchiCAD) et aux méthodes BIM, avec délivrance de certificats en fin de session."
+                }
+              ]} 
+            />
           </div>
         </div>
       </Section>

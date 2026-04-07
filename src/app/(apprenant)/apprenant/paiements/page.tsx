@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getApprenantPaiements, initiateApprenantFormationPayment } from '@/lib/api';
 
 interface PaymentInstallment {
-  id: number;
+  id: string;
   label: string;
   amount: number;
   status: 'paid' | 'pending' | 'failed';
@@ -24,7 +24,7 @@ interface PaymentActions {
   suggested_installment_amount: number;
   remaining_training_amount: number;
   pending_training_payment?: {
-    id: number;
+    id: string;
     reference: string;
     amount: number;
     label: string;

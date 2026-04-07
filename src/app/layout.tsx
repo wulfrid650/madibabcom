@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/AuthContext"
 import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics"
 import { ReCaptchaScript } from "@/components/security/ReCaptcha"
 import CookieConsentModal from "@/components/security/CookieConsentModal"
+import CookiePreferencesModal from "@/components/security/CookiePreferencesModal"
 import MaintenanceGate from '@/components/system/MaintenanceGate';
 
 export const metadata: Metadata = {
@@ -46,6 +47,7 @@ export default function RootLayout({
         </ThemeProvider>
         {/* Analytics et scripts dynamiques */}
         <CookieConsentModal />
+        <CookiePreferencesModal />
         <GoogleAnalytics />
         <ReCaptchaScript />
       </body>

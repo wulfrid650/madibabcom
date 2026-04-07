@@ -62,7 +62,7 @@ export default async function LegalPageContent({
           <div className="max-w-4xl">
             {page?.content ? (
               <div
-                className="prose prose-lg dark:prose-invert max-w-none leading-relaxed [&_h2]:mt-12 [&_h2]:mb-4 [&_h3]:mt-10 [&_h3]:mb-3 [&_p]:mb-6 [&_p]:leading-8 [&_ul]:my-6 [&_ul]:space-y-3 [&_ol]:my-6 [&_ol]:space-y-3 [&_li]:leading-8 [&_li]:my-2"
+                className="prose prose-lg max-w-none leading-relaxed prose-headings:text-slate-900 prose-p:text-slate-700 prose-li:text-slate-700 prose-strong:text-slate-900 prose-a:text-red-700 hover:prose-a:text-red-800 dark:prose-invert dark:prose-p:text-slate-300 dark:prose-li:text-slate-300 dark:prose-strong:text-white [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mt-8 [&_h3]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-5 [&_p]:leading-8 [&_ul]:my-6 [&_ul]:space-y-3 [&_ol]:my-6 [&_ol]:space-y-3 [&_li]:my-2 [&_li]:leading-8 [&_div.legal-block]:my-6 [&_div.legal-block]:rounded-2xl [&_div.legal-block]:border [&_div.legal-block]:border-slate-200 [&_div.legal-block]:bg-slate-50 [&_div.legal-block]:p-6 dark:[&_div.legal-block]:border-slate-700 dark:[&_div.legal-block]:bg-slate-900/40 [&_div.legal-note]:my-6 [&_div.legal-note]:rounded-2xl [&_div.legal-note]:border-l-4 [&_div.legal-note]:border-red-600 [&_div.legal-note]:bg-red-50 [&_div.legal-note]:px-5 [&_div.legal-note]:py-4 dark:[&_div.legal-note]:bg-red-950/30 [&_div.legal-table-wrap]:my-6 [&_div.legal-table-wrap]:overflow-x-auto [&_table]:w-full [&_table]:min-w-[560px] [&_table]:border-collapse [&_table]:overflow-hidden [&_table]:rounded-2xl [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:px-4 [&_th]:py-3 [&_th]:text-left [&_th]:text-sm [&_th]:font-semibold dark:[&_th]:border-slate-700 dark:[&_th]:bg-slate-800 [&_td]:border [&_td]:border-slate-200 [&_td]:px-4 [&_td]:py-3 [&_td]:align-top dark:[&_td]:border-slate-700"
                 dangerouslySetInnerHTML={{ __html: page.content }}
               />
             ) : (
@@ -83,6 +83,9 @@ export default async function LegalPageContent({
               </Link>
               <Link href="/privacy-policy" className="text-madiba-red hover:underline font-medium">
                 Politique de Confidentialité
+              </Link>
+              <Link href="/mentions-legales" className="text-madiba-red hover:underline font-medium">
+                Mentions Légales
               </Link>
             </div>
           </div>

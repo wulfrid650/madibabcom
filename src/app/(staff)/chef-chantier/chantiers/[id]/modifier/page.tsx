@@ -24,6 +24,10 @@ function mapProjectToFormValues(project: PortfolioProject): ChefChantierChantier
     start_date: formatDate(project.start_date),
     expected_end_date: formatDate(project.expected_end_date || project.completion_date),
     budget: typeof project.budget === 'number' ? String(project.budget) : project.budget || '',
+    priority: project.priority === 'high' || project.priority === 'low' || project.priority === 'medium'
+      ? project.priority
+      : 'medium',
+    construction_team_ids: Array.isArray(project.construction_team_ids) ? project.construction_team_ids : [],
   };
 }
 
@@ -39,6 +43,8 @@ export default function ModifierChantierPage() {
     title: '',
     status: 'pending',
     progress: 0,
+    priority: 'medium',
+    construction_team_ids: [],
   });
 
   useEffect(() => {

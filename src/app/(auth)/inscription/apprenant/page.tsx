@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { GraduationCap, ArrowLeft } from 'lucide-react';
-import { useReCaptcha, ReCaptchaBadge } from '@/components/security/ReCaptcha';
+import { useReCaptchaSettings, ReCaptchaWidget, resetReCaptchaWidget } from '@/components/security/ReCaptcha';
 import { useRedirectIfAuthenticated } from '@/contexts/AuthContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
@@ -17,7 +17,6 @@ interface FormData {
   password: string;
   confirmPassword: string;
   formation: string;
-  acceptTerms: boolean;
 }
 
 const formations = [
@@ -42,12 +41,12 @@ export default function ApprenantRegisterPage() {
     password: '',
     confirmPassword: '',
     formation: '',
-    acceptTerms: false,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const { isEnabled, protectedForms, executeRecaptcha } = useReCaptcha();
-  const requiresRecaptcha = isEnabled && protectedForms.includes('register');
+  const { isEnabled: recaptchaEnabled, protectedForms } = useReCaptchaSettings();
+  const showRecaptcha = recaptchaEnabled && protectedForms.includes('register');
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const target = e.target as HTMLInputElement;
@@ -90,10 +89,6 @@ export default function ApprenantRegisterPage() {
       setError('Veuillez sélectionner une formation');
       return false;
     }
-    if (!formData.acceptTerms) {
-      setError('Veuillez accepter les conditions générales');
-      return false;
-    }
     setError('');
     return true;
   };
@@ -118,14 +113,10 @@ export default function ApprenantRegisterPage() {
     setError('');
 
     try {
-      let recaptchaToken: string | null = null;
-      if (requiresRecaptcha) {
-        recaptchaToken = await executeRecaptcha('register');
-        if (!recaptchaToken) {
-          setError('Vérification reCAPTCHA impossible. Veuillez réessayer.');
-          setIsLoading(false);
-          return;
-        }
+      if (showRecaptcha && !recaptchaToken) {
+        setError('Veuillez compléter la vérification reCAPTCHA.');
+        setIsLoading(false);
+        return;
       }
 
       const response = await fetch(`${API_URL}/auth/register`, {
@@ -142,7 +133,7 @@ export default function ApprenantRegisterPage() {
           password_confirmation: formData.password,
           role: 'apprenant',
           formation: formData.formation,
-          ...(recaptchaToken ? { recaptcha_token: recaptchaToken, recaptcha_action: 'register' } : {}),
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
 
@@ -164,6 +155,8 @@ export default function ApprenantRegisterPage() {
       setError('Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.');
     } finally {
       setIsLoading(false);
+      resetReCaptchaWidget();
+      setRecaptchaToken(null);
     }
   };
 
@@ -359,22 +352,13 @@ export default function ApprenantRegisterPage() {
                 </select>
               </div>
 
-              <div className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="acceptTerms"
-                  name="acceptTerms"
-                  checked={formData.acceptTerms}
-                  onChange={handleChange}
-                  className="mt-1 w-4 h-4 rounded border-gray-300 text-madiba-red focus:ring-madiba-red"
-                />
-                <label htmlFor="acceptTerms" className="text-sm text-gray-600 dark:text-gray-400">
-                  En vous inscrivant sur ce site vous acceptez explicitement nos{' '}
-                  <Link href="/cgv" className="text-madiba-red hover:underline">CGV</Link>,{' '}
-                  <Link href="/cgu" className="text-madiba-red hover:underline">CGU</Link>{' '}
-                  et notre{' '}
-                  <Link href="/privacy-policy" className="text-madiba-red hover:underline">politique de confidentialité</Link>.
-                </label>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+                En vous inscrivant sur ce site, vous acceptez automatiquement nos{' '}
+                <Link href="/mentions-legales" className="text-madiba-red hover:underline">mentions légales</Link>,{' '}
+                <Link href="/cgv" className="text-madiba-red hover:underline">CGV</Link>,{' '}
+                <Link href="/cgu" className="text-madiba-red hover:underline">CGU</Link>{' '}
+                et notre{' '}
+                <Link href="/privacy-policy" className="text-madiba-red hover:underline">politique de confidentialité</Link>.
               </div>
 
               <div className="flex gap-4">
@@ -403,7 +387,6 @@ export default function ApprenantRegisterPage() {
                   )}
                 </button>
               </div>
-              <ReCaptchaBadge formType="register" />
             </div>
           )}
         </form>

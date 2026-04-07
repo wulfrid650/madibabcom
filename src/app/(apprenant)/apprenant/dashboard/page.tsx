@@ -9,7 +9,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface DashboardData {
   user: {
-    id: number;
+    id: string;
     name: string;
     email: string;
     phone?: string;
@@ -35,7 +35,17 @@ interface DashboardData {
       location: string;
       start_date?: string;
       end_date?: string;
+      start_time?: string;
+      end_time?: string;
     };
+    formateur?: {
+      id: number;
+      name: string;
+      email: string;
+      phone?: string | null;
+      speciality?: string | null;
+      bio?: string | null;
+    } | null;
     next_session?: {
       date: string;
       time: string;
@@ -61,7 +71,7 @@ interface DashboardData {
     status: 'completed' | 'pending' | 'new';
   }[];
   payment_history: Array<{
-    id: number;
+    id: string;
     reference: string;
     label: string;
     amount: number;
@@ -93,6 +103,17 @@ function formatDateTime(value?: string): string {
   return new Date(value).toLocaleString('fr-FR');
 }
 
+function getInitials(name?: string): string {
+  if (!name) return 'FM';
+
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
 export default function DashboardPage() {
   const { user, token, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -103,7 +124,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/login?redirect=/apprenant/dashboard');
+      router.push('/connexion?redirect=/apprenant/dashboard');
       return;
     }
     
@@ -123,7 +144,7 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          router.push('/login?redirect=/apprenant/dashboard');
+          router.push('/connexion?redirect=/apprenant/dashboard');
           return;
         }
         throw new Error('Erreur lors du chargement des données');
@@ -217,6 +238,12 @@ export default function DashboardPage() {
               <span className="block text-red-200">Statut</span>
               <span className="font-semibold">{currentFormation.status_label}</span>
             </div>
+            {currentFormation.formateur && (
+              <div className="bg-white/20 rounded-lg px-4 py-2">
+                <span className="block text-red-200">Formateur référent</span>
+                <span className="font-semibold">{currentFormation.formateur.name}</span>
+              </div>
+            )}
             {currentFormation.next_session && (
               <div className="bg-white/20 rounded-lg px-4 py-2">
                 <span className="block text-red-200">Prochaine session</span>
@@ -366,6 +393,52 @@ export default function DashboardPage() {
                   </>
                 )}
               </div>
+
+              {currentFormation.formateur && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-madiba-red/10 font-semibold text-madiba-red">
+                      {getInitials(currentFormation.formateur.name)}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Votre formateur</p>
+                        <p className="font-semibold text-madiba-black dark:text-white">
+                          {currentFormation.formateur.name}
+                        </p>
+                        {currentFormation.formateur.speciality && (
+                          <p className="text-sm text-gray-600 dark:text-gray-300">
+                            Spécialité: {currentFormation.formateur.speciality}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-3 text-sm">
+                        <a
+                          href={`mailto:${currentFormation.formateur.email}`}
+                          className="inline-flex items-center rounded-full bg-white px-3 py-1 text-gray-700 transition-colors hover:text-madiba-red dark:bg-gray-800 dark:text-gray-200"
+                        >
+                          {currentFormation.formateur.email}
+                        </a>
+                        {currentFormation.formateur.phone && (
+                          <a
+                            href={`tel:${currentFormation.formateur.phone}`}
+                            className="inline-flex items-center rounded-full bg-white px-3 py-1 text-gray-700 transition-colors hover:text-madiba-red dark:bg-gray-800 dark:text-gray-200"
+                          >
+                            {currentFormation.formateur.phone}
+                          </a>
+                        )}
+                      </div>
+
+                      {currentFormation.formateur.bio && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300">
+                          {currentFormation.formateur.bio}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <Link 
                 href="/apprenant/formations"

@@ -2,14 +2,18 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import auth, { User, AuthResponse, UserRole, RoleSlug } from '@/lib/auth';
+import auth, { User, AuthResponse, UserRole, RoleSlug, TwoFactorChallengePayload } from '@/lib/auth';
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string, recaptchaToken?: string) => Promise<{ success: boolean; message?: string }>;
+  login: (email: string, password: string, recaptchaToken?: string, rememberMe?: boolean) => Promise<AuthResponse>;
+  verifyTwoFactor: (code: string) => Promise<AuthResponse>;
+  resendTwoFactorCode: () => Promise<AuthResponse>;
+  getPendingTwoFactorChallenge: () => TwoFactorChallengePayload | null;
+  clearPendingTwoFactorChallenge: () => void;
   logout: () => Promise<void>;
   register: (data: {
     firstName: string;
@@ -59,19 +63,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
-  const login = async (email: string, password: string, recaptchaToken?: string) => {
+  const login = async (
+    email: string,
+    password: string,
+    recaptchaToken?: string,
+    rememberMe: boolean = false,
+  ) => {
     setIsLoading(true);
     try {
-      const result = await auth.login(email, password, recaptchaToken);
+      const result = await auth.login(email, password, recaptchaToken, rememberMe);
       if (result.success && result.user) {
         setUser(result.user);
         setToken(result.token || null);
       }
-      return { success: result.success, message: result.message };
+      return result;
     } finally {
       setIsLoading(false);
     }
   };
+
+  const verifyTwoFactor = async (code: string) => {
+    setIsLoading(true);
+    try {
+      const result = await auth.verifyTwoFactor(code);
+      if (result.success && result.user) {
+        setUser(result.user);
+        setToken(result.token || null);
+      }
+      return result;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resendTwoFactorCode = async () => {
+    setIsLoading(true);
+    try {
+      return await auth.resendTwoFactorCode();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getPendingTwoFactorChallenge = useCallback(() => {
+    const pending = auth.getPendingTwoFactorChallenge();
+    if (!pending) {
+      return null;
+    }
+
+    return {
+      challenge_token: pending.challenge_token,
+      expires_at: pending.expires_at ?? null,
+      resend_available_at: pending.resend_available_at ?? null,
+      retry_after_seconds: pending.retry_after_seconds ?? 0,
+      remaining_resends: pending.remaining_resends ?? 0,
+      send_count_last_hour: pending.send_count_last_hour ?? 0,
+      cooldown_seconds: pending.cooldown_seconds ?? 0,
+      email: pending.email,
+    };
+  }, []);
+
+  const clearPendingTwoFactorChallenge = useCallback(() => {
+    auth.clearPendingTwoFactorChallenge();
+  }, []);
 
   const logout = useCallback(async () => {
     setIsLoading(true);
@@ -215,6 +269,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         login,
+        verifyTwoFactor,
+        resendTwoFactorCode,
+        getPendingTwoFactorChallenge,
+        clearPendingTwoFactorChallenge,
         logout,
         register,
         hasRole,

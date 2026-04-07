@@ -15,6 +15,8 @@ const DEFAULT_VALUES: ChefChantierChantierPayload = {
   start_date: '',
   expected_end_date: '',
   budget: '',
+  priority: 'medium',
+  construction_team_ids: [],
 };
 
 export default function NouveauChantierPage() {

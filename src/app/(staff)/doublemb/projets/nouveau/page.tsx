@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -9,55 +9,138 @@ import {
     Building2,
     MapPin,
     Calendar,
-    Users,
     DollarSign,
-    Briefcase
+    Briefcase,
+    HardHat,
+    FileText,
+    Loader2,
 } from 'lucide-react';
+import {
+    createPortfolioProject,
+    getQuoteRequestsForProjectLink,
+    getUsers,
+    type QuoteRequestLinkOption,
+    type User,
+} from '@/lib/admin-api';
+
+type ProjectFormState = {
+    title: string;
+    client_name: string;
+    linked_quote_request_id: string;
+    chef_chantier_id: string;
+    location: string;
+    status: 'planned' | 'in_progress' | 'on_hold' | 'completed';
+    progress: string;
+    start_date: string;
+    expected_end_date: string;
+    budget: string;
+    description: string;
+};
+
+const initialFormState: ProjectFormState = {
+    title: '',
+    client_name: '',
+    linked_quote_request_id: '',
+    chef_chantier_id: '',
+    location: '',
+    status: 'planned',
+    progress: '0',
+    start_date: '',
+    expected_end_date: '',
+    budget: '',
+    description: '',
+};
+
+const statusOptions: Array<{ value: ProjectFormState['status']; label: string }> = [
+    { value: 'planned', label: 'Planifie' },
+    { value: 'in_progress', label: 'En cours' },
+    { value: 'on_hold', label: 'En pause' },
+    { value: 'completed', label: 'Termine' },
+];
 
 export default function NewProjectPage() {
     const router = useRouter();
+    const [formData, setFormData] = useState<ProjectFormState>(initialFormState);
+    const [chefOptions, setChefOptions] = useState<User[]>([]);
+    const [quoteOptions, setQuoteOptions] = useState<QuoteRequestLinkOption[]>([]);
+    const [loadingChefs, setLoadingChefs] = useState(true);
+    const [loadingQuotes, setLoadingQuotes] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [formData, setFormData] = useState({
-        title: '',
-        client_name: '',
-        chef_chantier: '',
-        location: '',
-        status: 'planifie',
-        progress: 0,
-        start_date: '',
-        estimated_end_date: '',
-        budget: '',
-        team_size: '',
-        description: ''
-    });
+    useEffect(() => {
+        const loadOptions = async () => {
+            try {
+                const [chefsResponse, quotesResponse] = await Promise.all([
+                    getUsers({ role: 'chef_chantier', per_page: 100 }),
+                    getQuoteRequestsForProjectLink({ per_page: 200 }),
+                ]);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({
+                setChefOptions(chefsResponse.data || []);
+                setQuoteOptions(quotesResponse.data || []);
+            } catch (loadError) {
+                console.error(loadError);
+            } finally {
+                setLoadingChefs(false);
+                setLoadingQuotes(false);
+            }
+        };
+
+        void loadOptions();
+    }, []);
+
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = event.target;
+        setFormData((prev) => ({
             ...prev,
-            [name]: value
+            [name]: value,
         }));
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleQuoteChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const { value } = event.target;
+        const selectedQuote = quoteOptions.find((quote) => String(quote.id) === value);
+
+        setFormData((prev) => ({
+            ...prev,
+            linked_quote_request_id: value,
+            client_name: prev.client_name || !selectedQuote
+                ? prev.client_name
+                : (selectedQuote.company || selectedQuote.name),
+        }));
+    };
+
+    const handleSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
         setIsSaving(true);
         setError(null);
 
         try {
-            // Mock Creation Request
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const response = await createPortfolioProject({
+                title: formData.title.trim(),
+                category: 'Construction',
+                client: formData.client_name.trim() || undefined,
+                linked_quote_request_id: formData.linked_quote_request_id || null,
+                description: formData.description.trim() || undefined,
+                location: formData.location.trim() || undefined,
+                status: formData.status,
+                progress: Number(formData.progress || 0),
+                start_date: formData.start_date || undefined,
+                expected_end_date: formData.expected_end_date || undefined,
+                budget: formData.budget.trim() || undefined,
+                chef_chantier_id: formData.chef_chantier_id || null,
+            });
 
-            console.log('Project Created:', formData);
+            if (!response.success || !response.data) {
+                setError(response.message || 'Erreur lors de la creation du projet.');
+                return;
+            }
 
-            // Redirect back to list
             router.push('/doublemb/projets');
             router.refresh();
-
-        } catch (err) {
-            setError('Erreur lors de la création du projet');
+        } catch (submitError) {
+            console.error(submitError);
+            setError('Erreur lors de la creation du projet.');
         } finally {
             setIsSaving(false);
         }
@@ -65,7 +148,6 @@ export default function NewProjectPage() {
 
     return (
         <div className="max-w-4xl mx-auto space-y-6">
-            {/* Header */}
             <div className="flex items-center gap-4">
                 <Link
                     href="/doublemb/projets"
@@ -75,9 +157,7 @@ export default function NewProjectPage() {
                 </Link>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Nouveau projet</h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Créer un nouveau chantier
-                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Creer un chantier reellement exploitable par le chef affecte.</p>
                 </div>
             </div>
 
@@ -88,15 +168,14 @@ export default function NewProjectPage() {
                     </div>
                 )}
 
-                {/* Main Info Card */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                         <Building2 className="h-5 w-5 mr-2 text-red-500" />
-                        Informations Générales
+                        Informations generales
                     </h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="col-span-2">
+                        <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Nom du projet *
                             </label>
@@ -107,23 +186,48 @@ export default function NewProjectPage() {
                                 value={formData.title}
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                placeholder="Ex: Villa Prestige Bastos"
+                                placeholder="Ex: Reconstruction Batiment C IUC"
                             />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Client (Nom) *
+                                Client
                             </label>
                             <input
                                 type="text"
                                 name="client_name"
-                                required
                                 value={formData.client_name}
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                                 placeholder="Nom du client ou de l'entreprise"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Devis lié
+                            </label>
+                            <div className="relative">
+                                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <select
+                                    name="linked_quote_request_id"
+                                    value={formData.linked_quote_request_id}
+                                    onChange={handleQuoteChange}
+                                    disabled={loadingQuotes}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white disabled:opacity-60"
+                                >
+                                    <option value="">Aucun devis lié</option>
+                                    {quoteOptions.map((quote) => (
+                                        <option key={quote.id} value={quote.id}>
+                                            {quote.quote_number || `Demande #${quote.id}`} - {quote.company || quote.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Optionnel. Permet de rattacher le projet à une demande de devis existante.
+                            </p>
                         </div>
 
                         <div>
@@ -144,7 +248,7 @@ export default function NewProjectPage() {
                             </div>
                         </div>
 
-                        <div className="col-span-2">
+                        <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Description
                             </label>
@@ -154,13 +258,12 @@ export default function NewProjectPage() {
                                 value={formData.description}
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                placeholder="Détails du projet..."
+                                placeholder="Details du projet..."
                             />
                         </div>
                     </div>
                 </div>
 
-                {/* Status & Team */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                         <Briefcase className="h-5 w-5 mr-2 text-blue-500" />
@@ -178,8 +281,11 @@ export default function NewProjectPage() {
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             >
-                                <option value="planifie">Planifié</option>
-                                <option value="en_cours">En cours</option>
+                                {statusOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {option.label}
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
@@ -187,46 +293,52 @@ export default function NewProjectPage() {
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Chef de chantier
                             </label>
-                            <input
-                                type="text"
-                                name="chef_chantier"
-                                value={formData.chef_chantier}
-                                onChange={handleChange}
-                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                placeholder="Nom du responsable"
-                            />
+                            <div className="relative">
+                                <HardHat className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <select
+                                    name="chef_chantier_id"
+                                    value={formData.chef_chantier_id}
+                                    onChange={handleChange}
+                                    disabled={loadingChefs}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white disabled:opacity-60"
+                                >
+                                    <option value="">Aucun chef affecte</option>
+                                    {chefOptions.map((chef) => (
+                                        <option key={chef.id} value={chef.id}>
+                                            {chef.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Taille de l'équipe prévue
+                                Progression initiale (%)
                             </label>
-                            <div className="relative">
-                                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                <input
-                                    type="number"
-                                    name="team_size"
-                                    value={formData.team_size}
-                                    onChange={handleChange}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                    placeholder="0"
-                                />
-                            </div>
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                name="progress"
+                                value={formData.progress}
+                                onChange={handleChange}
+                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
+                            />
                         </div>
                     </div>
                 </div>
 
-                {/* Planning & Budget */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                         <Calendar className="h-5 w-5 mr-2 text-green-500" />
-                        Planning & Budget
+                        Planning et budget
                     </h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Date de début prévue
+                                Date de debut prevue
                             </label>
                             <input
                                 type="date"
@@ -236,14 +348,15 @@ export default function NewProjectPage() {
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             />
                         </div>
+
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Date de fin estimée
+                                Date de fin estimee
                             </label>
                             <input
                                 type="date"
-                                name="estimated_end_date"
-                                value={formData.estimated_end_date}
+                                name="expected_end_date"
+                                value={formData.expected_end_date}
                                 onChange={handleChange}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
                             />
@@ -251,37 +364,37 @@ export default function NewProjectPage() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Budget Estimé (FCFA)
+                                Budget estime (FCFA)
                             </label>
                             <div className="relative">
                                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                                 <input
                                     type="number"
+                                    min="0"
                                     name="budget"
                                     value={formData.budget}
                                     onChange={handleChange}
                                     className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 dark:bg-gray-700 dark:text-white"
-                                    placeholder="0"
                                 />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-4">
+                <div className="flex items-center justify-end gap-3">
                     <Link
                         href="/doublemb/projets"
-                        className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
                     >
                         Annuler
                     </Link>
                     <button
                         type="submit"
                         disabled={isSaving}
-                        className="flex items-center px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                        className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
                     >
-                        <Save className="h-4 w-4 mr-2" />
-                        {isSaving ? 'Création...' : 'Créer le projet'}
+                        {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                        {isSaving ? 'Creation...' : 'Creer le projet'}
                     </button>
                 </div>
             </form>

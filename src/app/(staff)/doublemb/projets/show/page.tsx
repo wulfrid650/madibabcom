@@ -16,13 +16,76 @@ import {
     CheckCircle2,
     Clock,
     AlertTriangle,
-    FileText
 } from 'lucide-react';
+import { getPortfolioProjectAdmin, type PortfolioProjectAdmin } from '@/lib/admin-api';
+
+type ProjectDetail = {
+    id: string;
+    title: string;
+    client: { name: string; company_name?: string; email?: string; phone?: string };
+    chef_chantier?: { name: string; email?: string };
+    location: string;
+    status: 'planifie' | 'en_cours' | 'en_pause' | 'termine' | 'annule';
+    progress: number;
+    start_date?: string;
+    estimated_end_date?: string;
+    created_at?: string;
+    budget: number;
+    spent: number;
+    team_size: number;
+    description: string;
+    services: string[];
+};
+
+function normalizeStatus(status?: string): ProjectDetail['status'] {
+    if (status === 'in_progress') return 'en_cours';
+    if (status === 'on_hold') return 'en_pause';
+    if (status === 'completed') return 'termine';
+    if (status === 'cancelled') return 'annule';
+    return 'planifie';
+}
+
+function toNumber(value?: string | number | null): number {
+    if (typeof value === 'number') return value;
+    if (typeof value !== 'string') return 0;
+
+    const normalized = value.replace(/[^\d.,-]/g, '').replace(/\s+/g, '').replace(',', '.');
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapProjectToDetail(project: PortfolioProjectAdmin): ProjectDetail {
+    return {
+        id: String(project.id),
+        title: project.title,
+        client: {
+            name: project.client_name || project.client || 'Client non lié',
+            company_name: project.client_name || project.client || undefined,
+            email: project.linked_quote_request?.email || undefined,
+        },
+        chef_chantier: project.chef_chantier_name
+            ? { name: project.chef_chantier_name }
+            : undefined,
+        location: project.location || 'Localisation non définie',
+        status: normalizeStatus(project.status),
+        progress: Number(project.progress ?? 0),
+        start_date: project.start_date || undefined,
+        estimated_end_date: project.expected_end_date || project.completion_date || undefined,
+        created_at: project.created_at,
+        budget: toNumber(project.budget),
+        spent: 0,
+        team_size: typeof project.assigned_people_count === 'number'
+            ? project.assigned_people_count
+            : Array.isArray(project.team_ids) ? project.team_ids.length : 0,
+        description: project.description || 'Aucune description disponible pour ce projet.',
+        services: Array.isArray(project.services) ? project.services : [],
+    };
+}
 
 export default function ShowProjectPage() {
     const searchParams = useSearchParams();
     const projectId = searchParams.get('id');
-    const [project, setProject] = useState<any>(null);
+    const [project, setProject] = useState<ProjectDetail | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -35,29 +98,17 @@ export default function ShowProjectPage() {
 
         const fetchProject = async () => {
             try {
-                await new Promise(resolve => setTimeout(resolve, 500));
+                const response = await getPortfolioProjectAdmin(projectId);
 
-                // Mock Data
-                setProject({
-                    id: projectId,
-                    title: 'Villa Prestige Bastos',
-                    client: { name: 'Paul Biya', company_name: 'Biya Construction SARL', email: 'contact@biyaconstruction.com', phone: '+237 600 000 000' },
-                    chef_chantier: { name: 'Jean Kamga', email: 'jean.kamga@mbc.cm' },
-                    location: 'Bastos, Yaoundé',
-                    status: 'en_cours',
-                    progress: 65,
-                    start_date: '2025-10-01',
-                    estimated_end_date: '2026-04-01',
-                    budget: 150000000,
-                    spent: 87500000,
-                    team_size: 12,
-                    description: 'Construction d\'une villa haut standing avec piscine, jardins paysagers et dépendances. Le projet inclut le gros œuvre, les finitions de luxe et les aménagements extérieurs.',
-                    services: ['Architecture', 'Gros œuvre', 'Finitions', 'Paysagisme']
-                });
+                if (!response.success || !response.data) {
+                    setError(response.message || 'Impossible de charger le projet');
+                    return;
+                }
 
-                setIsLoading(false);
+                setProject(mapProjectToDetail(response.data));
             } catch (err) {
                 setError('Impossible de charger le projet');
+            } finally {
                 setIsLoading(false);
             }
         };
@@ -97,7 +148,10 @@ export default function ShowProjectPage() {
                         </h1>
                         <div className="flex items-center text-gray-500 dark:text-gray-400 mt-1 gap-4 text-sm">
                             <span className="flex items-center gap-1"><MapPin className="h-4 w-4" /> {project.location}</span>
-                            <span className="flex items-center gap-1"><Calendar className="h-4 w-4" /> Créé le {new Date().toLocaleDateString()}</span>
+                            <span className="flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                Créé le {project.created_at ? new Date(project.created_at).toLocaleDateString() : 'N/A'}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -117,13 +171,15 @@ export default function ShowProjectPage() {
                     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">À propos du projet</h2>
                         <p className="text-gray-600 dark:text-gray-300 leading-relaxed">{project.description}</p>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                            {project.services.map((service: string) => (
-                                <span key={service} className="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full text-xs font-medium text-gray-600 dark:text-gray-300">
-                                    {service}
-                                </span>
-                            ))}
-                        </div>
+                        {project.services.length > 0 && (
+                            <div className="mt-4 flex flex-wrap gap-2">
+                                {project.services.map((service) => (
+                                    <span key={service} className="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full text-xs font-medium text-gray-600 dark:text-gray-300">
+                                        {service}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Progress */}
@@ -141,11 +197,15 @@ export default function ShowProjectPage() {
                         <div className="grid grid-cols-2 gap-4 text-sm">
                             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">
                                 <span className="text-gray-500 block mb-1">Date de début</span>
-                                <span className="font-medium text-gray-900 dark:text-white">{new Date(project.start_date).toLocaleDateString()}</span>
+                                <span className="font-medium text-gray-900 dark:text-white">
+                                    {project.start_date ? new Date(project.start_date).toLocaleDateString() : 'Non définie'}
+                                </span>
                             </div>
                             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">
                                 <span className="text-gray-500 block mb-1">Fin estimée</span>
-                                <span className="font-medium text-gray-900 dark:text-white">{new Date(project.estimated_end_date).toLocaleDateString()}</span>
+                                <span className="font-medium text-gray-900 dark:text-white">
+                                    {project.estimated_end_date ? new Date(project.estimated_end_date).toLocaleDateString() : 'Non définie'}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -161,12 +221,12 @@ export default function ShowProjectPage() {
                         <div className="space-y-3">
                             <div>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">Entreprise / Nom</p>
-                                <p className="font-medium text-gray-900 dark:text-white">{project.client.company_name}</p>
+                                <p className="font-medium text-gray-900 dark:text-white">{project.client.company_name || project.client.name}</p>
                                 <p className="text-sm text-gray-600 dark:text-gray-300">{project.client.name}</p>
                             </div>
                             <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
-                                <p className="text-sm font-medium text-gray-900 dark:text-white">{project.client.email}</p>
-                                <p className="text-sm text-gray-500">{project.client.phone}</p>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">{project.client.email || 'Email non renseigné'}</p>
+                                <p className="text-sm text-gray-500">{project.client.phone || 'Téléphone non renseigné'}</p>
                             </div>
                         </div>
                     </div>
@@ -179,13 +239,19 @@ export default function ShowProjectPage() {
                         <div className="space-y-4">
                             <div>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">Chef de chantier</p>
-                                <div className="flex items-center gap-3 mt-1">
-                                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-xs">JK</div>
-                                    <div>
-                                        <p className="font-medium text-gray-900 dark:text-white">{project.chef_chantier.name}</p>
-                                        <p className="text-xs text-gray-500">{project.chef_chantier.email}</p>
+                                {project.chef_chantier ? (
+                                    <div className="flex items-center gap-3 mt-1">
+                                        <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-xs">
+                                            {project.chef_chantier.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-gray-900 dark:text-white">{project.chef_chantier.name}</p>
+                                            <p className="text-xs text-gray-500">{project.chef_chantier.email || 'Email non renseigné'}</p>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : (
+                                    <p className="mt-1 text-sm text-gray-500">Aucun chef de chantier affecté</p>
+                                )}
                             </div>
                             <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-700">
                                 <span className="text-sm text-gray-500">Taille de l'équipe</span>

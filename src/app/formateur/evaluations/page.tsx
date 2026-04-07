@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
@@ -70,6 +70,19 @@ export default function FormateurEvaluationsPage() {
 
   const formations = ['BIM', 'Métrage', 'Enscape', 'Twinmotion', 'Assistant Maçon', 'Électroménager'];
 
+  const loadEvaluations = useCallback(async () => {
+    setTimeout(() => {
+      setEvaluations([
+        { id: 1, titre: 'Examen BIM - Module 1', formation: 'BIM', type: 'examen', date: '2026-01-15', duree: 120, participants: 12, corriges: 0, status: 'a_venir' },
+        { id: 2, titre: 'TP Modélisation 3D', formation: 'BIM', type: 'tp', date: '2026-01-08', duree: 180, participants: 12, corriges: 8, status: 'terminee', moyenne: 14.2 },
+        { id: 3, titre: 'Quiz Métrage - Calculs', formation: 'Métrage', type: 'quiz', date: '2026-01-10', duree: 30, participants: 8, corriges: 8, status: 'corrigee', moyenne: 15.5 },
+        { id: 4, titre: 'Projet Rendu Enscape', formation: 'Enscape', type: 'projet', date: '2026-01-20', duree: 0, participants: 6, corriges: 0, status: 'a_venir' },
+        { id: 5, titre: 'Examen Final Métrage', formation: 'Métrage', type: 'examen', date: '2026-01-05', duree: 180, participants: 8, corriges: 5, status: 'terminee', moyenne: 13.8 },
+      ]);
+      setIsLoading(false);
+    }, 500);
+  }, []);
+
   useEffect(() => {
     if (!token || !user) {
       router.push('/connexion');
@@ -81,21 +94,8 @@ export default function FormateurEvaluationsPage() {
       return;
     }
 
-    loadEvaluations();
-  }, [token, user, hasRole, router]);
-
-  const loadEvaluations = async () => {
-    setTimeout(() => {
-      setEvaluations([
-        { id: 1, titre: 'Examen BIM - Module 1', formation: 'BIM', type: 'examen', date: '2026-01-15', duree: 120, participants: 12, corriges: 0, status: 'a_venir' },
-        { id: 2, titre: 'TP Modélisation 3D', formation: 'BIM', type: 'tp', date: '2026-01-08', duree: 180, participants: 12, corriges: 8, status: 'terminee', moyenne: 14.2 },
-        { id: 3, titre: 'Quiz Métrage - Calculs', formation: 'Métrage', type: 'quiz', date: '2026-01-10', duree: 30, participants: 8, corriges: 8, status: 'corrigee', moyenne: 15.5 },
-        { id: 4, titre: 'Projet Rendu Enscape', formation: 'Enscape', type: 'projet', date: '2026-01-20', duree: 0, participants: 6, corriges: 0, status: 'a_venir' },
-        { id: 5, titre: 'Examen Final Métrage', formation: 'Métrage', type: 'examen', date: '2026-01-05', duree: 180, participants: 8, corriges: 5, status: 'terminee', moyenne: 13.8 },
-      ]);
-      setIsLoading(false);
-    }, 500);
-  };
+    void loadEvaluations();
+  }, [token, user, hasRole, router, loadEvaluations]);
 
   const loadNotes = (evaluation: Evaluation) => {
     setSelectedEvaluation(evaluation);

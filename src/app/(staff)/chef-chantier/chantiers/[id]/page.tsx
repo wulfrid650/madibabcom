@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
-  ArrowLeft, MapPin, Calendar, Users, TrendingUp, 
+  ArrowLeft, MapPin, Calendar, TrendingUp, 
   Upload, Image as ImageIcon, X, Loader2, CheckCircle, AlertCircle,
-  Download, FileText, Clock, Pencil
+  Download, Clock, Pencil
 } from 'lucide-react';
 import { api, ProjectPhaseState } from '@/lib/api';
 
@@ -28,6 +28,20 @@ export default function ChantierDetailPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [description, setDescription] = useState('');
+
+  const priorityLabel =
+    chantier?.priority === 'high'
+      ? 'Priorité haute'
+      : chantier?.priority === 'low'
+      ? 'Priorité basse'
+      : 'Priorité moyenne';
+
+  const priorityClass =
+    chantier?.priority === 'high'
+      ? 'bg-red-100 text-red-700'
+      : chantier?.priority === 'low'
+      ? 'bg-green-100 text-green-700'
+      : 'bg-amber-100 text-amber-700';
 
   useEffect(() => {
     loadChantierDetails();
@@ -169,6 +183,25 @@ export default function ChantierDetailPage() {
               <MapPin className="h-4 w-4 mr-1" />
               {chantier.location || 'Localisation non définie'}
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${priorityClass}`}>
+                {priorityLabel}
+              </span>
+              {Array.isArray(chantier.construction_teams) && chantier.construction_teams.length > 0 ? (
+                chantier.construction_teams.map((team: { id: number; name: string }) => (
+                  <span
+                    key={team.id}
+                    className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
+                  >
+                    {team.name}
+                  </span>
+                ))
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                  Aucune équipe affectée
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <button

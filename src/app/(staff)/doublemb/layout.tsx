@@ -336,11 +336,11 @@ export default function AdminLayout({ children }: LayoutProps) {
                 <p className="text-xs text-red-600 dark:text-red-400 font-medium">Administrateur</p>
               </div>
             </div>
-            <div className="mt-3 flex space-x-2">
+            <div className="mt-3 flex flex-col space-y-2">
               <RoleSwitcher />
               <button
                 onClick={logout}
-                className="flex-1 flex items-center justify-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 Déconnexion

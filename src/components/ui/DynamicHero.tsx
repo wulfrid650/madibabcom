@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { api } from '@/lib/api';
 
 interface HeroSettings {
   hero_title?: string;
@@ -38,16 +39,8 @@ export default function DynamicHero({ initialSettings }: DynamicHeroProps) {
 
     const fetchSettings = async () => {
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-        const response = await fetch(`${API_URL}/public/settings`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
-        const data = await response.json();
-
-        if (data.success && data.data) {
-          setSettings(data.data);
-        }
+        const data = await api.getPublicSettings();
+        setSettings(data || {});
       } catch (error) {
         if (controller.signal.aborted) {
           return;

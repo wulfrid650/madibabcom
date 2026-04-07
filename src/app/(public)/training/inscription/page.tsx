@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -31,6 +32,8 @@ interface Formation {
 interface SiteSettings {
     contact_phone?: string;
     contact_email?: string;
+    phone?: string;
+    email?: string;
 }
 
 function formatPrice(price: string | number): string {
@@ -92,7 +95,6 @@ function InscriptionFormContent() {
         formation_id: '',
         session_id: '',
         message: '',
-        acceptTerms: false,
         createAccount: false,
         password: '',
         confirmPassword: '',
@@ -145,7 +147,7 @@ function InscriptionFormContent() {
         try {
             const [formationsRes, settingsRes] = await Promise.all([
                 fetch(`${API_URL}/public/formations`),
-                fetch(`${API_URL}/public/settings`).catch(() => null)
+                api.getPublicSettings().catch(() => null)
             ]);
 
             if (formationsRes.ok) {
@@ -153,9 +155,13 @@ function InscriptionFormContent() {
                 setFormations(data.data || []);
             }
 
-            if (settingsRes && settingsRes.ok) {
-                const data = await settingsRes.json();
-                setSettings(data.data || {});
+            if (settingsRes) {
+                setSettings({
+                    contact_phone: settingsRes.phone,
+                    contact_email: settingsRes.email,
+                    phone: settingsRes.phone,
+                    email: settingsRes.email,
+                });
             }
         } catch (err) {
             console.error('Error fetching data:', err);
@@ -233,6 +239,7 @@ function InscriptionFormContent() {
                         password: formData.password,
                         password_confirmation: formData.confirmPassword,
                         role: 'apprenant',
+                        formation: formData.formation_id,
                     }),
                 });
 
@@ -612,33 +619,29 @@ function InscriptionFormContent() {
                                 />
                             </div>
 
-                            <div className="mb-6">
-                                <label className="flex items-start gap-3 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        name="acceptTerms"
-                                        checked={formData.acceptTerms}
-                                        onChange={handleChange}
-                                        required
-                                        className="w-5 h-5 mt-0.5 rounded border-gray-300 text-madiba-red focus:ring-madiba-red"
-                                    />
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                                        J&apos;accepte les{' '}
-                                        <Link href="/cgv" className="text-madiba-red hover:underline">
-                                            Conditions Générales de Vente
-                                        </Link>{' '}
-                                        et la{' '}
-                                        <Link href="/confidentialite" className="text-madiba-red hover:underline">
-                                            Politique de Confidentialité
-                                        </Link>
-                                        . *
-                                    </span>
-                                </label>
+                            <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+                                En vous inscrivant à une formation, vous acceptez automatiquement les{' '}
+                                <Link href="/mentions-legales" className="text-madiba-red hover:underline">
+                                    mentions légales
+                                </Link>
+                                , les{' '}
+                                <Link href="/cgv" className="text-madiba-red hover:underline">
+                                    Conditions Générales de Vente
+                                </Link>
+                                , les{' '}
+                                <Link href="/cgu" className="text-madiba-red hover:underline">
+                                    Conditions Générales d&apos;Utilisation
+                                </Link>{' '}
+                                et la{' '}
+                                <Link href="/privacy-policy" className="text-madiba-red hover:underline">
+                                    Politique de Confidentialité
+                                </Link>
+                                .
                             </div>
 
                             <button
                                 type="submit"
-                                disabled={submitting || !formData.acceptTerms || !formData.formation_id}
+                                disabled={submitting || !formData.formation_id}
                                 className="w-full bg-madiba-red text-white py-4 rounded-xl font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {submitting ? (

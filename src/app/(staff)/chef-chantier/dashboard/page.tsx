@@ -1,114 +1,130 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Calendar, Users, FolderKanban, Camera, AlertCircle, CheckCircle2 } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-interface DashboardData {
-  stats: {
-    chantiersActifs: number;
-    equipes: number;
-    avancements: number;
-    alertes: number;
-  };
-  projectsData: { name: string; completed: number; inProgress: number; pending: number }[];
-  statusData: { name: string; value: number }[];
-  recentProjects: {
-    id: number;
-    name: string;
-    progress: number;
-    team: number;
-    status: string;
-  }[];
-  recentUpdates: {
-    id: number;
-    project: string;
-    update: string;
-    date: string;
-    author: string;
-  }[];
-}
+import { api, ChefChantierDashboardData } from '@/lib/api';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
+import { Users, FolderKanban, Camera, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const COLORS = ['#10b981', '#f59e0b', '#ef4444'];
+
+const EMPTY_DASHBOARD: ChefChantierDashboardData = {
+  stats: {
+    chantiersActifs: 0,
+    equipes: 0,
+    avancements: 0,
+    alertes: 0,
+  },
+  projectsData: [],
+  statusData: [],
+  recentProjects: [],
+  recentUpdates: [],
+};
+
+function getProjectStatusClass(status: string): string {
+  const normalizedStatus = status.toLowerCase();
+
+  if (normalizedStatus.includes('term')) {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+
+  if (normalizedStatus.includes('pause') || normalizedStatus.includes('attente')) {
+    return 'bg-amber-100 text-amber-700';
+  }
+
+  if (normalizedStatus.includes('plan')) {
+    return 'bg-slate-100 text-slate-700';
+  }
+
+  return 'bg-blue-100 text-blue-700';
+}
 
 export default function ChefChantierDashboard() {
   const { user, token, isLoading: authLoading } = useAuth();
   const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<ChefChantierDashboardData>(EMPTY_DASHBOARD);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login?redirect=/chef-chantier/dashboard');
-      return;
-    }
-    
-    if (token) {
-      fetchDashboard();
-    }
-  }, [user, token, authLoading]);
-
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/chef-chantier/dashboard`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
-      });
+      setLoading(true);
+      setError(null);
 
-      if (!response.ok) {
-        if (response.status === 403) {
-          router.push('/chef-chantier/unauthorized');
-          return;
-        }
-        throw new Error('Erreur lors du chargement des données');
+      const dashboardData = await api.getChefChantierDashboard();
+
+      setData({
+        ...EMPTY_DASHBOARD,
+        ...dashboardData,
+        stats: {
+          ...EMPTY_DASHBOARD.stats,
+          ...dashboardData.stats,
+        },
+        projectsData: dashboardData.projectsData ?? [],
+        statusData: dashboardData.statusData ?? [],
+        recentProjects: dashboardData.recentProjects ?? [],
+        recentUpdates: dashboardData.recentUpdates ?? [],
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Une erreur est survenue';
+
+      if (message.includes('permissions')) {
+        router.push('/chef-chantier/unauthorized');
+        return;
       }
 
-      const result = await response.json();
-      setData(result.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue');
+      setError(message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
-  // Données par défaut
-  const stats = data?.stats || { chantiersActifs: 0, equipes: 0, avancements: 0, alertes: 0 };
-  const projectsData = data?.projectsData || [
-    { name: 'Jan', completed: 0, inProgress: 0, pending: 0 },
-  ];
-  const statusData = data?.statusData || [
-    { name: 'Complétés', value: 0 },
-    { name: 'En cours', value: 0 },
-    { name: 'En attente', value: 0 },
-  ];
-  const recentProjects = data?.recentProjects || [];
-  const recentUpdates = data?.recentUpdates || [];
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/connexion?redirect=/chef-chantier/dashboard');
+      return;
+    }
+
+    if (token) {
+      void fetchDashboard();
+    }
+  }, [authLoading, fetchDashboard, router, token, user]);
+
+  const { stats, projectsData, statusData, recentProjects, recentUpdates } = data;
+  const hasProgressData = projectsData.some((entry) => entry.completed > 0 || entry.inProgress > 0 || entry.pending > 0);
+  const hasStatusData = statusData.some((entry) => entry.value > 0);
+  const totalStatusCount = statusData.reduce((sum, entry) => sum + entry.value, 0);
 
   if (authLoading || loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-600"></div>
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-t-2 border-amber-600"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 text-center">
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-        <button 
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+        <p className="text-red-600">{error}</p>
+        <button
           onClick={fetchDashboard}
-          className="mt-4 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+          className="mt-4 rounded-lg bg-amber-600 px-4 py-2 text-white transition-colors hover:bg-amber-700"
         >
-          Réessayer
+          Reessayer
         </button>
       </div>
     );
@@ -116,13 +132,12 @@ export default function ChefChantierDashboard() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
             Tableau de bord - Chef de Chantier
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="mt-1 text-gray-600">
             Bienvenue, {user?.name}
           </p>
         </div>
@@ -138,172 +153,229 @@ export default function ChefChantierDashboard() {
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-lg bg-white p-6 shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm font-medium">Chantiers actifs</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.chantiersActifs}</p>
-              <p className="text-xs text-gray-500 mt-2">En cours</p>
+              <p className="text-sm font-medium text-gray-600">Chantiers actifs</p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">{stats.chantiersActifs}</p>
+              <p className="mt-2 text-xs text-gray-500">En cours</p>
             </div>
-            <div className="bg-blue-100 p-3 rounded-lg">
+            <div className="rounded-lg bg-blue-100 p-3">
               <FolderKanban className="h-6 w-6 text-blue-600" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="rounded-lg bg-white p-6 shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm font-medium">Équipes</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.equipes}</p>
-              <p className="text-xs text-gray-500 mt-2">Ouvriers actifs</p>
+              <p className="text-sm font-medium text-gray-600">Equipes</p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">{stats.equipes}</p>
+              <p className="mt-2 text-xs text-gray-500">Ouvriers mobilises</p>
             </div>
-            <div className="bg-green-100 p-3 rounded-lg">
+            <div className="rounded-lg bg-green-100 p-3">
               <Users className="h-6 w-6 text-green-600" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="rounded-lg bg-white p-6 shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm font-medium">Avancements</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.avancements}</p>
-              <p className="text-xs text-gray-500 mt-2">Ce mois</p>
+              <p className="text-sm font-medium text-gray-600">Avancements</p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">{stats.avancements}</p>
+              <p className="mt-2 text-xs text-gray-500">Publies</p>
             </div>
-            <div className="bg-amber-100 p-3 rounded-lg">
+            <div className="rounded-lg bg-amber-100 p-3">
               <Camera className="h-6 w-6 text-amber-600" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="rounded-lg bg-white p-6 shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm font-medium">Alertes</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.alertes}</p>
-              <p className="text-xs text-gray-500 mt-2">À traiter</p>
+              <p className="text-sm font-medium text-gray-600">Alertes</p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">{stats.alertes}</p>
+              <p className="mt-2 text-xs text-gray-500">A traiter</p>
             </div>
-            <div className="bg-red-100 p-3 rounded-lg">
+            <div className="rounded-lg bg-red-100 p-3">
               <AlertCircle className="h-6 w-6 text-red-600" />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Bar Chart */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-lg bg-white p-6 shadow lg:col-span-2">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Progression des chantiers
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={projectsData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="completed" fill="#10b981" name="Complétés" />
-              <Bar dataKey="inProgress" fill="#f59e0b" name="En cours" />
-              <Bar dataKey="pending" fill="#ef4444" name="En attente" />
-            </BarChart>
-          </ResponsiveContainer>
+          {hasProgressData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={projectsData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="completed" fill="#10b981" name="Completes" />
+                <Bar dataKey="inProgress" fill="#f59e0b" name="En cours" />
+                <Bar dataKey="pending" fill="#ef4444" name="En attente" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
+              Aucun chantier assigne n alimente encore ce graphique.
+            </div>
+          )}
         </div>
 
-        {/* Pie Chart */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="rounded-lg bg-white p-6 shadow">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
             État global
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={statusData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, value }) => `${name}: ${value}`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {statusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          {hasStatusData ? (
+            <div className="space-y-5">
+              <div className="relative h-[240px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={52}
+                      outerRadius={82}
+                      paddingAngle={3}
+                      stroke="#ffffff"
+                      strokeWidth={3}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {statusData.map((entry, index) => (
+                        <Cell key={`cell-${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number | string) => [`${value}`, 'Chantiers']} />
+                  </PieChart>
+                </ResponsiveContainer>
+
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="rounded-full bg-white/95 px-4 py-3 text-center shadow-sm">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-gray-400">Total</p>
+                    <p className="text-2xl font-bold text-gray-900">{totalStatusCount}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {statusData.map((entry, index) => {
+                  const percentage = totalStatusCount > 0
+                    ? Math.round((entry.value / totalStatusCount) * 100)
+                    : 0;
+
+                  return (
+                    <div
+                      key={`${entry.name}-${index}`}
+                      className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className="h-3 w-3 flex-shrink-0 rounded-full"
+                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                        ></span>
+                        <span className="truncate text-sm font-medium text-gray-700">{entry.name}</span>
+                      </div>
+                      <div className="ml-3 text-right">
+                        <p className="text-sm font-semibold text-gray-900">{entry.value}</p>
+                        <p className="text-xs text-gray-500">{percentage}%</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
+              Aucun chantier disponible pour calculer une répartition.
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Recent Projects */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Projects Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-lg bg-white shadow">
+          <div className="border-b border-gray-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-gray-900">
-              Chantiers récents
+              Chantiers recents
             </h2>
           </div>
           <div className="divide-y divide-gray-200">
-            {recentProjects.map((project) => (
-              <div key={project.id} className="px-6 py-4">
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-medium text-gray-900">{project.name}</h3>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                    {project.status}
-                  </span>
+            {recentProjects.length > 0 ? (
+              recentProjects.map((project) => (
+                <div key={project.id} className="px-6 py-4">
+                  <div className="mb-2 flex items-start justify-between gap-4">
+                    <h3 className="font-medium text-gray-900">{project.name}</h3>
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getProjectStatusClass(project.status)}`}>
+                      {project.status}
+                    </span>
+                  </div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm text-gray-600">
+                      Equipe: {project.team} personne{project.team > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-gray-200">
+                    <div
+                      className="h-2 rounded-full bg-blue-600 transition-all"
+                      style={{ width: `${project.progress}%` }}
+                    ></div>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{project.progress}% complete</p>
                 </div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-gray-600">
-                    Équipe: {project.team} personnes
-                  </p>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full transition-all"
-                    style={{ width: `${project.progress}%` }}
-                  ></div>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">{project.progress}% complété</p>
+              ))
+            ) : (
+              <div className="px-6 py-8 text-sm text-gray-500">
+                Aucun chantier recent disponible pour ce compte.
               </div>
-            ))}
+            )}
           </div>
         </div>
 
-        {/* Recent Updates */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
+        <div className="overflow-hidden rounded-lg bg-white shadow">
+          <div className="border-b border-gray-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-gray-900">
-              Avancements récents
+              Avancements recents
             </h2>
           </div>
-          <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-            {recentUpdates.map((update) => (
-              <div key={update.id} className="px-6 py-4">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900">
-                      {update.project}
-                    </p>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {update.update}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {new Date(update.date).toLocaleDateString('fr-FR')} • {update.author}
-                    </p>
+          <div className="max-h-96 divide-y divide-gray-200 overflow-y-auto">
+            {recentUpdates.length > 0 ? (
+              recentUpdates.map((update) => (
+                <div key={update.id} className="px-6 py-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="flex-shrink-0">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {update.project}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        {update.update}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {new Date(update.date).toLocaleDateString('fr-FR')} • {update.author}
+                      </p>
+                    </div>
                   </div>
                 </div>
+              ))
+            ) : (
+              <div className="px-6 py-8 text-sm text-gray-500">
+                Aucun avancement recent n a encore ete publie.
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>

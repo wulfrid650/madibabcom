@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
@@ -45,21 +45,7 @@ export default function FormateurPresencesPage() {
 
   const formations = ['BIM', 'Métrage', 'Enscape', 'Twinmotion', 'Assistant Maçon', 'Électroménager'];
 
-  useEffect(() => {
-    if (!token || !user) {
-      router.push('/connexion');
-      return;
-    }
-
-    if (!hasRole('formateur')) {
-      router.push('/dashboard');
-      return;
-    }
-
-    loadPresences();
-  }, [token, user, hasRole, router, selectedDate, selectedFormation]);
-
-  const loadPresences = async () => {
+  const loadPresences = useCallback(async () => {
     setIsLoading(true);
     setTimeout(() => {
       setPresences({
@@ -79,7 +65,21 @@ export default function FormateurPresencesPage() {
       });
       setIsLoading(false);
     }, 300);
-  };
+  }, [selectedDate, selectedFormation]);
+
+  useEffect(() => {
+    if (!token || !user) {
+      router.push('/connexion');
+      return;
+    }
+
+    if (!hasRole('formateur')) {
+      router.push('/dashboard');
+      return;
+    }
+
+    void loadPresences();
+  }, [token, user, hasRole, router, loadPresences]);
 
   const updatePresence = (apprenantId: number, status: 'present' | 'absent' | 'retard' | 'excuse') => {
     if (!presences) return;

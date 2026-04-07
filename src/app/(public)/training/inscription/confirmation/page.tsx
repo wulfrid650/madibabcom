@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -20,11 +20,7 @@ function ConfirmationContent() {
         reference?: string;
     } | null>(null);
 
-    useEffect(() => {
-        checkPaymentStatus();
-    }, [paymentId, reference, status]);
-
-    const checkPaymentStatus = async () => {
+    const checkPaymentStatus = useCallback(async () => {
         // Si le status est passé dans l'URL par Moneroo
         if (status) {
             if (status === 'success' || status === 'successful') {
@@ -58,7 +54,11 @@ function ConfirmationContent() {
         }
 
         setLoading(false);
-    };
+    }, [paymentId, reference, status]);
+
+    useEffect(() => {
+        void checkPaymentStatus();
+    }, [checkPaymentStatus]);
 
     if (loading) {
         return (

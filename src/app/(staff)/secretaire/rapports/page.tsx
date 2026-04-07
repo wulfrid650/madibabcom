@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 
 export default function SecretaryReportsPage() {
+    const today = new Date();
     const [reports, setReports] = useState<adminApi.FinancialReport[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
+    const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -23,6 +25,10 @@ export default function SecretaryReportsPage() {
     // Form State
     const [title, setTitle] = useState('');
     const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+    const [generationPeriodType, setGenerationPeriodType] = useState<adminApi.FinancialReportPeriodType>('monthly');
+    const [generationMonth, setGenerationMonth] = useState(
+        `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`,
+    );
 
     // Fetch Reports
     const fetchReports = async () => {
@@ -43,6 +49,56 @@ export default function SecretaryReportsPage() {
     React.useEffect(() => {
         fetchReports();
     }, []);
+
+    const getGenerationPayload = (): adminApi.FinancialReportGenerationPayload => {
+        if (generationPeriodType !== 'monthly') {
+            return { period_type: generationPeriodType };
+        }
+
+        const [yearValue, monthValue] = generationMonth.split('-').map(Number);
+
+        return {
+            period_type: 'monthly',
+            month: monthValue || today.getMonth() + 1,
+            year: yearValue || today.getFullYear(),
+        };
+    };
+
+    const getGenerationSummary = () => {
+        if (generationPeriodType === 'current_year') {
+            return `Le rapport couvrira l'année ${today.getFullYear()}.`;
+        }
+
+        if (generationPeriodType === 'previous_year') {
+            return `Le rapport couvrira l'année ${today.getFullYear() - 1}.`;
+        }
+
+        const [yearValue, monthValue] = generationMonth.split('-').map(Number);
+
+        if (!yearValue || !monthValue) {
+            return 'Le rapport couvrira le mois sélectionné.';
+        }
+
+        const monthDate = new Date(yearValue, monthValue - 1, 1);
+        return `Le rapport couvrira ${monthDate.toLocaleDateString('fr-FR', {
+            month: 'long',
+            year: 'numeric',
+        })}.`;
+    };
+
+    const getReportPeriodLabel = (report: adminApi.FinancialReport) => {
+        const metadataLabel = report.metadata?.period_label;
+
+        if (typeof metadataLabel === 'string' && metadataLabel.trim()) {
+            return metadataLabel;
+        }
+
+        if (report.period_start && report.period_end) {
+            return `Période du ${new Date(report.period_start).toLocaleDateString('fr-FR')} au ${new Date(report.period_end).toLocaleDateString('fr-FR')}`;
+        }
+
+        return null;
+    };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -91,6 +147,28 @@ export default function SecretaryReportsPage() {
         }
     };
 
+    const handleGenerateReport = async () => {
+        setUploadError(null);
+        setUploadSuccess(null);
+        setIsGeneratingReport(true);
+
+        try {
+            const response = await adminApi.generateFinancialReportSecretary(getGenerationPayload());
+
+            if (response.success) {
+                await fetchReports();
+                setUploadSuccess('Rapport généré avec succès !');
+                setTimeout(() => setUploadSuccess(null), 3000);
+            } else {
+                setUploadError(response.message || 'Erreur lors de la génération');
+            }
+        } catch (error) {
+            setUploadError('Erreur lors de la génération');
+        } finally {
+            setIsGeneratingReport(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -109,35 +187,55 @@ export default function SecretaryReportsPage() {
                             <FileText className="h-5 w-5 mr-2" />
                             Générer un rapport
                         </h2>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                            Générer le rapport financier du mois en cours.
-                        </p>
-                        <button
-                            onClick={async () => {
-                                setIsLoading(true); // reusing list loading state or create a new one?
-                                // Better create a local loading state for this button if needed, but here simple toast or refresh is fine.
-                                // Let's reuse isLoading for simplicity or better, just fire and refresh.
-                                try {
-                                    const date = new Date();
-                                    const response = await adminApi.generateFinancialReportSecretary(date.getMonth() + 1, date.getFullYear());
-                                    if (response.success) {
-                                        fetchReports();
-                                        setUploadSuccess("Rapport généré avec succès !");
-                                        // Clear success after 3s
-                                        setTimeout(() => setUploadSuccess(null), 3000);
-                                    } else {
-                                        setUploadError("Erreur lors de la génération");
-                                    }
-                                } catch (e) {
-                                    setUploadError("Erreur lors de la génération");
-                                } finally {
-                                    setIsLoading(false);
-                                }
-                            }}
-                            className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                        >
-                            Générer le rapport du mois
-                        </button>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Période du rapport
+                                </label>
+                                <select
+                                    value={generationPeriodType}
+                                    onChange={(e) => setGenerationPeriodType(e.target.value as adminApi.FinancialReportPeriodType)}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500"
+                                >
+                                    <option value="monthly">Mois spécifique</option>
+                                    <option value="current_year">Année en cours</option>
+                                    <option value="previous_year">Année précédente</option>
+                                </select>
+                            </div>
+
+                            {generationPeriodType === 'monthly' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Mois à générer
+                                    </label>
+                                    <input
+                                        type="month"
+                                        value={generationMonth}
+                                        onChange={(e) => setGenerationMonth(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500"
+                                    />
+                                </div>
+                            )}
+
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {getGenerationSummary()}
+                            </p>
+
+                            <button
+                                onClick={handleGenerateReport}
+                                disabled={isGeneratingReport}
+                                className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isGeneratingReport ? (
+                                    <>
+                                        <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
+                                        Génération...
+                                    </>
+                                ) : (
+                                    'Générer le rapport'
+                                )}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Upload Section */}
@@ -282,6 +380,11 @@ export default function SecretaryReportsPage() {
                                                         </>
                                                     )}
                                                 </div>
+                                                {getReportPeriodLabel(report) && (
+                                                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                                        {getReportPeriodLabel(report)}
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
 

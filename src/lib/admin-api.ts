@@ -5,11 +5,11 @@ import { tokenStorage } from './api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
-const getAuthHeaders = () => {
+const getAuthHeaders = (options: { json?: boolean } = {}) => {
   const token = tokenStorage.getToken();
   return {
-    'Content-Type': 'application/json',
     'Accept': 'application/json',
+    ...(options.json ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
   };
 };
@@ -49,9 +49,13 @@ export interface User {
   created_at: string;
   last_login_at?: string;
   company_name?: string;
+  company_address?: string;
+  project_type?: string;
   formation?: string;
   employee_id?: string;
   address?: string;
+  emergency_contact?: string;
+  emergency_phone?: string;
   speciality?: string;
   bio?: string;
 }
@@ -65,44 +69,6 @@ export interface Role {
   can_self_register: boolean;
   users_count?: number;
   created_at: string;
-}
-
-export interface Payment {
-  id: string;
-  reference: string;
-  amount: number;
-  currency?: string;
-  method: string;
-  method_label?: string;
-  status: 'pending' | 'completed' | 'failed' | 'refunded';
-  type?: string;
-  user: {
-    id: string;
-    name: string;
-    email: string
-  };
-  description: string;
-  payable_type?: string;
-  payable?: {
-    formation?: { title: string };
-    title?: string; // For projects?
-  };
-  project_title?: string; // Helper for frontend mapping
-  formation_title?: string; // Helper for frontend mapping
-  created_at: string;
-  validated_at?: string;
-  validated_by?: string;
-  metadata?: any;
-}
-
-export interface PaymentFilters {
-  status?: string;
-  method?: string;
-  search?: string;
-  from_date?: string;
-  to_date?: string;
-  page?: number;
-  per_page?: number;
 }
 
 export interface Payment {
@@ -264,7 +230,7 @@ export async function createUser(data: CreateUserData): Promise<ApiResponse<User
   try {
     const response = await fetch(`${API_URL}/admin/users`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(data),
     });
 
@@ -298,7 +264,7 @@ export async function updateUser(userId: string, data: Partial<CreateUserData>):
   try {
     const response = await fetch(`${API_URL}/admin/users/${userId}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(data),
     });
     return await response.json();
@@ -347,6 +313,46 @@ export async function exportUsers(role?: string): Promise<ApiResponse<User[]>> {
   }
 }
 
+// Login History
+export interface UserLoginHistory {
+  id: string;
+  ip_address: string;
+  user_agent: string;
+  country: string;
+  city: string;
+  isp: string;
+  created_at: string;
+}
+
+export async function getUserLoginHistory(userId: string): Promise<PaginatedResponse<UserLoginHistory>> {
+  try {
+    const response = await fetch(`${API_URL}/admin/users/${userId}/login-history`, {
+      headers: getAuthHeaders(),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching user login history:', error);
+    return {
+      success: false,
+      data: [],
+      meta: { current_page: 1, last_page: 1, per_page: 15, total: 0 }
+    };
+  }
+}
+
+export async function sendUserPasswordReset(userId: string): Promise<ApiResponse<null>> {
+  try {
+    const response = await fetch(`${API_URL}/admin/users/${userId}/send-reset-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+    return { success: false, message: 'Erreur de connexion au serveur' };
+  }
+}
+
 // Roles
 export async function getRoles(): Promise<ApiResponse<Role[]>> {
   try {
@@ -372,7 +378,7 @@ export async function createRole(data: CreateRoleData): Promise<ApiResponse<Role
   try {
     const response = await fetch(`${API_URL}/admin/roles`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(data),
     });
     return await response.json();
@@ -386,7 +392,7 @@ export async function updateRole(roleId: string, data: Partial<CreateRoleData>):
   try {
     const response = await fetch(`${API_URL}/admin/roles/${roleId}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(data),
     });
     return await response.json();
@@ -489,7 +495,7 @@ export async function updateSetting(key: string, value: string | boolean | strin
   try {
     const response = await fetch(`${API_URL}/settings/${key}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify({ value }),
     });
     return await response.json();
@@ -504,7 +510,7 @@ export async function updateSettings(settings: { key: string; value: string | bo
   try {
     const response = await fetch(`${API_URL}/settings/batch`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify({ settings }),
     });
     return await response.json();
@@ -527,7 +533,7 @@ export async function createSetting(data: {
   try {
     const response = await fetch(`${API_URL}/admin/settings`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(data),
     });
     return await response.json();
@@ -556,7 +562,7 @@ export async function toggleMaintenanceMode(enabled: boolean, message?: string):
   try {
     const response = await fetch(`${API_URL}/admin/settings/maintenance`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify({ enabled, message }),
     });
     return await response.json();
@@ -578,19 +584,11 @@ export async function getPayments(filters: PaymentFilters = {}): Promise<Paginat
     if (filters.page) params.append('page', filters.page.toString());
     if (filters.per_page) params.append('per_page', filters.per_page.toString());
 
-    // Debug URL
-    console.log(`Fetching payments from: ${API_URL}/secretaire/paiements?${params.toString()}`);
-
     const response = await fetch(`${API_URL}/secretaire/paiements?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
 
-    if (!response.ok) {
-      console.warn(`API error: ${response.status}`);
-    }
-
     const result = await response.json();
-    console.log('Payments response:', result);
 
     // Handle Laravel Pagination object nested in 'data'
     if (result.success && result.data && result.data.data && Array.isArray(result.data.data)) {
@@ -626,17 +624,12 @@ export async function getClients(filters: UserFilters = {}): Promise<PaginatedRe
     if (filters.page) params.append('page', filters.page.toString());
     if (filters.per_page) params.append('per_page', filters.per_page.toString());
 
-    // Debug URL
-    console.log(`Fetching clients from: ${API_URL}/secretaire/clients?${params.toString()}`);
-
-    // Try specific endpoint first
     const response = await fetch(`${API_URL}/secretaire/clients?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
 
     if (response.ok) {
       const result = await response.json();
-      console.log('Clients response:', result);
 
       // Handle Laravel Pagination object nested in 'data'
       if (result.success && result.data && result.data.data && Array.isArray(result.data.data)) {
@@ -654,11 +647,6 @@ export async function getClients(filters: UserFilters = {}): Promise<PaginatedRe
       return result;
     }
 
-    // Fallback to generic users endpoint
-    // WARNING: This might fail for non-admins if /admin/users is restricted.
-    // Ideally, we should rely only on /secretaire/clients or specific endpoints.
-    // If specific endpoint fails, it's better to return empty than risk 403.
-    console.warn('Clients endpoint failed, returning empty list to avoid 403');
     return {
       success: false,
       data: [],
@@ -677,17 +665,15 @@ export async function getClients(filters: UserFilters = {}): Promise<PaginatedRe
 
 export async function createClient(data: Partial<CreateUserData>): Promise<ApiResponse<User>> {
   try {
-    // Clients are created as users with 'client' role
     const payload = {
       ...data,
       roles: ['client'],
-      // Ensure required fields are present or defaulted
-      password: data.password || 'Client123!', // Default password if not provided
+      password: data.password || 'Client123!',
     };
 
     const response = await fetch(`${API_URL}/secretaire/clients`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(payload),
     });
 
@@ -722,7 +708,15 @@ export interface PortfolioProjectAdmin {
   expected_end_date?: string;
   completion_date?: string;
   chef_chantier_id?: number | null;
+  chef_chantier_public_id?: string | null;
+  chef_chantier_name?: string | null;
+  linked_quote_request_id?: number | null;
+  linked_quote_request?: QuoteRequestLinkOption | null;
   team_ids?: number[];
+  construction_team_ids?: number[];
+  assigned_construction_teams_count?: number;
+  assigned_construction_team_members_count?: number;
+  assigned_people_count?: number;
   cover_image?: string;
   challenges?: string;
   results?: string;
@@ -733,21 +727,39 @@ export interface PortfolioProjectAdmin {
   created_at: string;
 }
 
+export interface QuoteRequestLinkOption {
+  id: number;
+  quote_number?: string | null;
+  name: string;
+  email: string;
+  company?: string | null;
+  subject: string;
+  status: string;
+  service_type?: string | null;
+  created_at: string;
+}
+
 export interface PortfolioProjectPayload {
   title: string;
   category: string;
   description?: string;
   client?: string;
-  client_id?: number | null;
+  client_id?: string | number | null;
+  linked_quote_request_id?: string | number | null;
   location?: string;
   year?: number;
   duration?: string;
   budget?: string;
   status?: string;
+  progress?: number;
   cover_image?: string;
   images?: string[];
   is_featured?: boolean;
   is_published?: boolean;
+  start_date?: string;
+  expected_end_date?: string;
+  chef_chantier_id?: string | number | null;
+  team_ids?: Array<string | number>;
 }
 
 export async function getPortfolioProjectsAdmin(params: { search?: string; page?: number; per_page?: number } = {}): Promise<PaginatedResponse<PortfolioProjectAdmin>> {
@@ -790,11 +802,51 @@ export async function getPortfolioProjectsAdmin(params: { search?: string; page?
   }
 }
 
+export async function getQuoteRequestsForProjectLink(params: { search?: string; per_page?: number } = {}): Promise<ApiResponse<QuoteRequestLinkOption[]>> {
+  try {
+    const query = new URLSearchParams();
+    query.append('quote_only', '1');
+    query.append('per_page', String(params.per_page ?? 100));
+    if (params.search) query.append('search', params.search);
+
+    const response = await fetch(`${API_URL}/admin/contacts?${query.toString()}`, {
+      headers: getAuthHeaders(),
+    });
+
+    const result = await response.json();
+
+    if (!result.success || !Array.isArray(result.data)) {
+      return {
+        success: false,
+        message: result.message || 'Impossible de charger les devis.',
+      };
+    }
+
+    return {
+      success: true,
+      data: result.data.map((contact: any) => ({
+        id: Number(contact.id),
+        quote_number: contact.quote_number ?? null,
+        name: contact.name,
+        email: contact.email,
+        company: contact.company ?? null,
+        subject: contact.subject,
+        status: contact.status,
+        service_type: contact.service_type ?? null,
+        created_at: contact.created_at,
+      })),
+    };
+  } catch (error) {
+    console.error('Error fetching quote requests for project link:', error);
+    return { success: false, message: 'Erreur de connexion au serveur' };
+  }
+}
+
 export async function createPortfolioProject(payload: PortfolioProjectPayload): Promise<ApiResponse<PortfolioProjectAdmin>> {
   try {
     const response = await fetch(`${API_URL}/admin/portfolio-projects`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(payload),
     });
     return await response.json();
@@ -804,11 +856,23 @@ export async function createPortfolioProject(payload: PortfolioProjectPayload): 
   }
 }
 
+export async function getPortfolioProjectAdmin(id: number | string): Promise<ApiResponse<PortfolioProjectAdmin>> {
+  try {
+    const response = await fetch(`${API_URL}/admin/portfolio-projects/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching portfolio project:', error);
+    return { success: false, message: 'Erreur de connexion au serveur' };
+  }
+}
+
 export async function updatePortfolioProject(id: number, payload: Partial<PortfolioProjectPayload>): Promise<ApiResponse<PortfolioProjectAdmin>> {
   try {
     const response = await fetch(`${API_URL}/admin/portfolio-projects/${id}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders({ json: true }),
       body: JSON.stringify(payload),
     });
     return await response.json();
@@ -863,7 +927,7 @@ export interface FinancialReport {
   type: string;
   period_start: string;
   period_end: string;
-  file_path: string; // Ensure this matches backend
+  file_path: string;
   created_at: string;
   is_auto_generated: boolean;
   status: string;
@@ -872,6 +936,33 @@ export interface FinancialReport {
     name: string;
   };
   metadata?: any;
+}
+
+export type FinancialReportPeriodType = 'monthly' | 'current_year' | 'previous_year';
+
+export interface FinancialReportGenerationPayload {
+  period_type?: FinancialReportPeriodType;
+  month?: number;
+  year?: number;
+}
+
+function buildFinancialReportGenerationPayload(
+  payloadOrMonth: number | FinancialReportGenerationPayload,
+  year?: number,
+): FinancialReportGenerationPayload {
+  if (typeof payloadOrMonth === 'number') {
+    return {
+      period_type: 'monthly',
+      month: payloadOrMonth,
+      year: year ?? new Date().getFullYear(),
+    };
+  }
+
+  return {
+    period_type: payloadOrMonth.period_type ?? 'monthly',
+    ...(typeof payloadOrMonth.month === 'number' ? { month: payloadOrMonth.month } : {}),
+    ...(typeof payloadOrMonth.year === 'number' ? { year: payloadOrMonth.year } : {}),
+  };
 }
 
 
@@ -920,7 +1011,6 @@ export async function getFinancialReports(type?: string): Promise<PaginatedRespo
 
     const result = await response.json();
 
-    // Handle Laravel Pagination object nested in 'data'
     if (result.success && result.data && result.data.data && Array.isArray(result.data.data)) {
       return {
         success: true,
@@ -945,12 +1035,15 @@ export async function getFinancialReports(type?: string): Promise<PaginatedRespo
   }
 }
 
-export async function generateFinancialReport(month: number, year: number): Promise<ApiResponse<FinancialReport>> {
+export async function generateFinancialReport(
+  payloadOrMonth: number | FinancialReportGenerationPayload,
+  year?: number,
+): Promise<ApiResponse<FinancialReport>> {
   try {
     const response = await fetch(`${API_URL}/admin/reports/financial/generate`, {
       method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ month, year }),
+      headers: getAuthHeaders({ json: true }),
+      body: JSON.stringify(buildFinancialReportGenerationPayload(payloadOrMonth, year)),
     });
     return await response.json();
   } catch (error) {
@@ -966,7 +1059,6 @@ export async function uploadFinancialReport(data: FormData): Promise<ApiResponse
       headers: {
         'Accept': 'application/json',
         'Authorization': `Bearer ${tokenStorage.getToken()}`,
-        // Content-Type is set automatically for FormData
       },
       body: data,
     });
@@ -977,12 +1069,15 @@ export async function uploadFinancialReport(data: FormData): Promise<ApiResponse
   }
 }
 
-export async function generateFinancialReportSecretary(month: number, year: number): Promise<ApiResponse<FinancialReport>> {
+export async function generateFinancialReportSecretary(
+  payloadOrMonth: number | FinancialReportGenerationPayload,
+  year?: number,
+): Promise<ApiResponse<FinancialReport>> {
   try {
     const response = await fetch(`${API_URL}/secretaire/reports/financial/generate`, {
       method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ month, year }),
+      headers: getAuthHeaders({ json: true }),
+      body: JSON.stringify(buildFinancialReportGenerationPayload(payloadOrMonth, year)),
     });
     return await response.json();
   } catch (error) {
@@ -1017,7 +1112,6 @@ export async function getProjectReports(): Promise<PaginatedResponse<ProjectRepo
 
     const result = await response.json();
 
-    // Handle Laravel Pagination object nested in 'data'
     if (result.success && result.data && result.data.data && Array.isArray(result.data.data)) {
       return {
         success: true,
@@ -1041,5 +1135,3 @@ export async function getProjectReports(): Promise<PaginatedResponse<ProjectRepo
     };
   }
 }
-
-

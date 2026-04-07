@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Building2, ArrowLeft } from 'lucide-react';
-import { useReCaptcha, ReCaptchaBadge } from '@/components/security/ReCaptcha';
+import { useReCaptchaSettings, ReCaptchaWidget, resetReCaptchaWidget } from '@/components/security/ReCaptcha';
 import { useRedirectIfAuthenticated } from '@/contexts/AuthContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
@@ -24,7 +24,6 @@ interface FormData {
   // Projet
   projectType: string;
   projectDescription: string;
-  acceptTerms: boolean;
 }
 
 const projectTypes = [
@@ -51,12 +50,12 @@ export default function ClientRegisterPage() {
     confirmPassword: '',
     projectType: '',
     projectDescription: '',
-    acceptTerms: false,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const { isEnabled, protectedForms, executeRecaptcha } = useReCaptcha();
-  const requiresRecaptcha = isEnabled && protectedForms.includes('register');
+  const { isEnabled: recaptchaEnabled, protectedForms } = useReCaptchaSettings();
+  const showRecaptcha = recaptchaEnabled && protectedForms.includes('register');
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const target = e.target as HTMLInputElement;
@@ -99,10 +98,6 @@ export default function ClientRegisterPage() {
       setError('Veuillez sélectionner un type de projet');
       return false;
     }
-    if (!formData.acceptTerms) {
-      setError('Veuillez accepter les conditions générales');
-      return false;
-    }
     setError('');
     return true;
   };
@@ -127,14 +122,10 @@ export default function ClientRegisterPage() {
     setError('');
 
     try {
-      let recaptchaToken: string | null = null;
-      if (requiresRecaptcha) {
-        recaptchaToken = await executeRecaptcha('register');
-        if (!recaptchaToken) {
-          setError('Vérification reCAPTCHA impossible. Veuillez réessayer.');
-          setIsLoading(false);
-          return;
-        }
+      if (showRecaptcha && !recaptchaToken) {
+        setError('Veuillez compléter la vérification reCAPTCHA.');
+        setIsLoading(false);
+        return;
       }
 
       const response = await fetch(`${API_URL}/auth/register`, {
@@ -154,7 +145,7 @@ export default function ClientRegisterPage() {
           company_address: formData.companyAddress || null,
           project_type: formData.projectType,
           project_description: formData.projectDescription || null,
-          ...(recaptchaToken ? { recaptcha_token: recaptchaToken, recaptcha_action: 'register' } : {}),
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
 
@@ -176,6 +167,8 @@ export default function ClientRegisterPage() {
       setError('Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.');
     } finally {
       setIsLoading(false);
+      resetReCaptchaWidget();
+      setRecaptchaToken(null);
     }
   };
 
@@ -416,23 +409,16 @@ export default function ClientRegisterPage() {
                 />
               </div>
 
-              <div className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="acceptTerms"
-                  name="acceptTerms"
-                  checked={formData.acceptTerms}
-                  onChange={handleChange}
-                  className="mt-1 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="acceptTerms" className="text-sm text-gray-600 dark:text-gray-400">
-                  En vous inscrivant sur ce site vous acceptez explicitement nos{' '}
-                  <Link href="/cgv" className="text-blue-600 hover:underline">CGV</Link>,{' '}
-                  <Link href="/cgu" className="text-blue-600 hover:underline">CGU</Link>{' '}
-                  et notre{' '}
-                  <Link href="/privacy-policy" className="text-blue-600 hover:underline">politique de confidentialité</Link>.
-                </label>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+                En vous inscrivant sur ce site, vous acceptez automatiquement nos{' '}
+                <Link href="/mentions-legales" className="text-blue-600 hover:underline">mentions légales</Link>,{' '}
+                <Link href="/cgv" className="text-blue-600 hover:underline">CGV</Link>,{' '}
+                <Link href="/cgu" className="text-blue-600 hover:underline">CGU</Link>{' '}
+                et notre{' '}
+                <Link href="/privacy-policy" className="text-blue-600 hover:underline">politique de confidentialité</Link>.
               </div>
+
+              <ReCaptchaWidget formType="register" onToken={setRecaptchaToken} />
 
               <div className="flex gap-4">
                 <button
@@ -460,7 +446,6 @@ export default function ClientRegisterPage() {
                   )}
                 </button>
               </div>
-              <ReCaptchaBadge formType="register" />
             </div>
           )}
         </form>
