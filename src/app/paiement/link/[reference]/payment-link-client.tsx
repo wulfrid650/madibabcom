@@ -15,6 +15,10 @@ export default function PaymentLinkClient() {
     const [error, setError] = useState<string | null>(null);
     const [processing, setProcessing] = useState(false);
     const [showBankInfo, setShowBankInfo] = useState(false);
+    const [promoCode, setPromoCode] = useState('');
+    const [checkingPromo, setCheckingPromo] = useState(false);
+    const [promoError, setPromoError] = useState<string | null>(null);
+    const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
 
     useEffect(() => {
         if (reference) {
@@ -47,9 +51,12 @@ export default function PaymentLinkClient() {
     const handlePay = async () => {
         setProcessing(true);
         try {
-            const res = await api.payPending(reference);
+            const codeToUse = payment?.metadata?.temp_promo || promoCode.trim() || undefined;
+            const res = await api.payPending(reference, codeToUse);
             if (res.checkout_url) {
                 window.location.href = res.checkout_url;
+            } else if (res.payment_url) {
+                window.location.href = res.payment_url;
             } else {
                 alert('Le paiement reste en attente. Réessayez dans quelques instants ou contactez le secrétariat avec votre référence.');
             }
@@ -57,6 +64,37 @@ export default function PaymentLinkClient() {
             alert('Erreur lors de l\'initialisation du paiement: ' + err.message);
         } finally {
             setProcessing(false);
+        }
+    };
+
+    const handleApplyPromo = async () => {
+        if (!promoCode || !payment) return;
+        setCheckingPromo(true);
+        setPromoError(null);
+        setPromoSuccess(null);
+
+        try {
+            const code = promoCode.trim();
+            const formationId = payment.formation_id ?? payment.metadata?.formation_id;
+            const res = await api.checkPromo(code, Number(payment.amount), formationId ? Number(formationId) : undefined);
+
+            if (res.success) {
+                setPromoSuccess(`Code valide ! Réduction: ${new Intl.NumberFormat('fr-FR').format(res.data.discount)} ${payment.currency}`);
+                setPayment((prev: any) => ({
+                    ...prev,
+                    amount: res.data.new_amount,
+                    metadata: {
+                        ...prev.metadata,
+                        temp_promo: code,
+                        temp_discount: res.data.discount,
+                    },
+                }));
+            }
+        } catch (err) {
+            console.error(err);
+            setPromoError(err instanceof Error ? err.message : 'Code promo invalide');
+        } finally {
+            setCheckingPromo(false);
         }
     };
 
@@ -156,21 +194,38 @@ export default function PaymentLinkClient() {
                         </div>
                     </div>
 
-                    {/* Promo Code Section */}
-                    <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Code Promo</label>
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                placeholder="Entrez votre code"
-                                className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-madiba-red focus:border-madiba-red text-sm"
-                            // Logic to be connected to state
-                            />
-                            <button className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200">
-                                Appliquer
-                            </button>
+                    {!payment.metadata?.promo_code && (
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Code Promo</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={promoCode}
+                                    onChange={(e) => setPromoCode(e.target.value)}
+                                    placeholder="Entrez votre code"
+                                    className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-madiba-red focus:border-madiba-red text-sm"
+                                />
+                                <button
+                                    onClick={handleApplyPromo}
+                                    disabled={checkingPromo || !promoCode}
+                                    className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                                >
+                                    {checkingPromo ? '...' : 'Appliquer'}
+                                </button>
+                            </div>
+                            {promoError && <p className="text-red-500 text-xs mt-1">{promoError}</p>}
+                            {promoSuccess && <p className="text-green-600 text-xs mt-1">{promoSuccess}</p>}
                         </div>
-                    </div>
+                    )}
+
+                    {payment.metadata?.promo_code && (
+                        <div className="mb-6 bg-green-50 p-3 rounded-lg border border-green-100">
+                            <p className="text-sm text-green-700 flex justify-between">
+                                <span>Code promo appliqué : <strong>{payment.metadata.promo_code}</strong></span>
+                                <span>-{new Intl.NumberFormat('fr-FR').format(payment.metadata.discount_amount)} {payment.currency}</span>
+                            </p>
+                        </div>
+                    )}
 
                     <button
                         onClick={handlePay}

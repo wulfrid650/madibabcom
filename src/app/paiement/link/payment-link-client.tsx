@@ -59,27 +59,24 @@ export default function PaymentLinkClient() {
         setPromoSuccess(null);
 
         try {
-            const res = await api.checkPromo(promoCode, payment.amount);
+            const code = promoCode.trim();
+            const formationId = payment.formation_id ?? payment.metadata?.formation_id;
+            const res = await api.checkPromo(code, Number(payment.amount), formationId ? Number(formationId) : undefined);
             if (res.success) {
                 setPromoSuccess(`Code valide ! Réduction: ${new Intl.NumberFormat('fr-FR').format(res.data.discount)} ${payment.currency}`);
-                // Temporarily update UI to show new price logic if needed, 
-                // but usually we want to confirm it via payPending or re-fetching?
-                // For now just showing success message.
-                // We could also optimistically update the displayed amount.
                 setPayment((prev: any) => ({
                     ...prev,
-                    amount: res.data.new_amount, // Preview the new amount
+                    amount: res.data.new_amount,
                     metadata: {
                         ...prev.metadata,
-                        // Don't persist yet until "Pay" is clicked, but we can visualize it
-                        temp_promo: promoCode,
+                        temp_promo: code,
                         temp_discount: res.data.discount
                     }
                 }));
             }
-        } catch (err: any) {
+        } catch (err) {
             console.error(err);
-            setPromoError(err.response?.data?.message || 'Code promo invalide');
+            setPromoError(err instanceof Error ? err.message : 'Code promo invalide');
         } finally {
             setCheckingPromo(false);
         }
@@ -89,12 +86,13 @@ export default function PaymentLinkClient() {
         if (!reference) return;
         setProcessing(true);
         try {
-            // If we have a temp promo code applied in UI, pass it
-            const codeToUse = payment.metadata?.temp_promo || promoCode || undefined;
+            const codeToUse = payment.metadata?.temp_promo || promoCode.trim() || undefined;
 
             const res = await api.payPending(reference, codeToUse);
             if (res.checkout_url) {
                 window.location.href = res.checkout_url;
+            } else if (res.payment_url) {
+                window.location.href = res.payment_url;
             } else {
                 alert('Erreur: Pas d\'URL de paiement reçue.');
             }
