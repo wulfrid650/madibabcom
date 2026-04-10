@@ -3,16 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Button from '@/components/ui/Button';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFormateurApprenants } from '@/lib/api';
+import { getFormateurApprenants, type FormateurApprenantListItem } from '@/lib/api';
 import {
   Users,
   Search,
-  Filter,
-  Mail,
-  Phone,
-  Calendar,
   TrendingUp,
   Eye,
   MessageSquare,
@@ -22,25 +17,11 @@ import {
   GraduationCap
 } from 'lucide-react';
 
-interface Apprenant {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  formation: string;
-  enrollment_date: string;
-  progression: number;
-  taux_presence: number;
-  derniere_connexion: string;
-  status: 'actif' | 'inactif' | 'termine';
-  notes_moyenne: number;
-}
-
 export default function FormateurApprenantsPage() {
   const router = useRouter();
   const { user, token, hasRole } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
-  const [apprenants, setApprenants] = useState<Apprenant[]>([]);
+  const [apprenants, setApprenants] = useState<FormateurApprenantListItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterFormation, setFilterFormation] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');

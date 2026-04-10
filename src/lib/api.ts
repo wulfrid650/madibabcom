@@ -2026,6 +2026,48 @@ export interface TeacherApprenant {
     avatar?: string;
 }
 
+export type FormateurApprenantStatus = 'actif' | 'inactif' | 'termine';
+
+export interface FormateurApprenantListItem {
+    id: number;
+    name: string;
+    email: string;
+    phone: string;
+    formation: string;
+    enrollment_date: string;
+    progression: number;
+    taux_presence: number;
+    derniere_connexion: string;
+    status: FormateurApprenantStatus;
+    notes_moyenne: number;
+}
+
+export type FormateurEvaluationType = 'exam' | 'quiz' | 'practical' | 'project';
+export type FormateurEvaluationStatus = 'a_venir' | 'en_cours' | 'terminee' | 'corrigee';
+
+export interface FormateurEvaluationItem {
+    id: number;
+    titre: string;
+    formation: string;
+    type: FormateurEvaluationType;
+    date: string;
+    duree: number;
+    participants: number;
+    corriges: number;
+    status: FormateurEvaluationStatus;
+    moyenne?: number | null;
+}
+
+export interface FormateurEvaluationNoteItem {
+    id: number;
+    apprenant_id: number;
+    apprenant_name: string;
+    note: number | null;
+    commentaire: string;
+    date_soumission: string | null;
+    status?: string;
+}
+
 export interface FormateurFormationSession {
     id: number;
     formation_id: number;
@@ -2320,6 +2362,97 @@ export interface FormateurCertificateEnrollment {
     can_request: boolean;
 }
 
+function toSafeNumber(value: unknown, fallback: number = 0): number {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toSafeNullableNumber(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toSafeString(value: unknown, fallback: string = ''): string {
+    return typeof value === 'string' ? value : fallback;
+}
+
+function toPercent(value: unknown): number {
+    return Math.max(0, Math.min(100, toSafeNumber(value, 0)));
+}
+
+function normalizeFormateurApprenantStatus(value: unknown, progression: number): FormateurApprenantStatus {
+    if (value === 'actif' || value === 'inactif' || value === 'termine') {
+        return value;
+    }
+
+    return progression >= 100 ? 'termine' : 'actif';
+}
+
+function normalizeFormateurEvaluationType(value: unknown): FormateurEvaluationType {
+    if (value === 'exam' || value === 'quiz' || value === 'practical' || value === 'project') {
+        return value;
+    }
+
+    return 'exam';
+}
+
+function normalizeFormateurEvaluationStatus(value: unknown): FormateurEvaluationStatus {
+    if (value === 'a_venir' || value === 'en_cours' || value === 'terminee' || value === 'corrigee') {
+        return value;
+    }
+
+    return 'en_cours';
+}
+
+function normalizeFormateurApprenant(item: any): FormateurApprenantListItem {
+    const progression = toPercent(item?.progression);
+
+    return {
+        id: toSafeNumber(item?.id, 0),
+        name: toSafeString(item?.name),
+        email: toSafeString(item?.email),
+        phone: toSafeString(item?.phone),
+        formation: toSafeString(item?.formation),
+        enrollment_date: toSafeString(item?.enrollment_date),
+        progression,
+        taux_presence: toPercent(item?.taux_presence),
+        derniere_connexion: toSafeString(item?.derniere_connexion),
+        status: normalizeFormateurApprenantStatus(item?.status, progression),
+        notes_moyenne: toSafeNumber(item?.notes_moyenne, 0),
+    };
+}
+
+function normalizeFormateurEvaluation(item: any): FormateurEvaluationItem {
+    return {
+        id: toSafeNumber(item?.id, 0),
+        titre: toSafeString(item?.titre),
+        formation: toSafeString(item?.formation),
+        type: normalizeFormateurEvaluationType(item?.type),
+        date: toSafeString(item?.date),
+        duree: Math.max(0, toSafeNumber(item?.duree, 0)),
+        participants: Math.max(0, toSafeNumber(item?.participants, 0)),
+        corriges: Math.max(0, toSafeNumber(item?.corriges, 0)),
+        status: normalizeFormateurEvaluationStatus(item?.status),
+        moyenne: toSafeNullableNumber(item?.moyenne),
+    };
+}
+
+function normalizeFormateurEvaluationNote(item: any): FormateurEvaluationNoteItem {
+    return {
+        id: toSafeNumber(item?.id, 0),
+        apprenant_id: toSafeNumber(item?.apprenant_id, 0),
+        apprenant_name: toSafeString(item?.apprenant_name),
+        note: toSafeNullableNumber(item?.note),
+        commentaire: toSafeString(item?.commentaire),
+        date_soumission: typeof item?.date_soumission === 'string' ? item.date_soumission : null,
+        status: typeof item?.status === 'string' ? item.status : undefined,
+    };
+}
+
 // ===========================================
 // Client-specific API methods
 // ===========================================
@@ -2514,7 +2647,12 @@ export async function updateApprenantProfil(data: any) {
  */
 export async function getFormateurApprenants(params?: { search?: string; formation?: string }) {
     const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
-    return api.request<ApiResponse<any[]>>(`/formateur/apprenants${query}`);
+    const response = await api.request<ApiResponse<any[]>>(`/formateur/apprenants${query}`);
+
+    return {
+        ...response,
+        data: Array.isArray(response.data) ? response.data.map(normalizeFormateurApprenant) : [],
+    };
 }
 
 export async function getFormateurCertificats(params?: { search?: string }) {
@@ -2534,7 +2672,12 @@ export async function requestFormateurCertificat(enrollmentId: number, notes?: s
  */
 export async function getFormateurEvaluations(params?: { status?: string }) {
     const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
-    return api.request<ApiResponse<any[]>>(`/formateur/evaluations${query}`);
+    const response = await api.request<ApiResponse<any[]>>(`/formateur/evaluations${query}`);
+
+    return {
+        ...response,
+        data: Array.isArray(response.data) ? response.data.map(normalizeFormateurEvaluation) : [],
+    };
 }
 
 /**
@@ -2558,7 +2701,12 @@ export async function createEvaluation(data: {
  * Formateur - Get evaluation notes
  */
 export async function getEvaluationNotes(evaluationId: number) {
-    return api.request<ApiResponse<any[]>>(`/formateur/evaluations/${evaluationId}/notes`);
+    const response = await api.request<ApiResponse<any[]>>(`/formateur/evaluations/${evaluationId}/notes`);
+
+    return {
+        ...response,
+        data: Array.isArray(response.data) ? response.data.map(normalizeFormateurEvaluationNote) : [],
+    };
 }
 
 /**

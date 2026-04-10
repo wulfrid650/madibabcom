@@ -10,6 +10,8 @@ import {
   createEvaluation as createFormateurEvaluation,
   getEvaluationNotes as fetchEvaluationNotes,
   getFormateurEvaluations,
+  type FormateurEvaluationItem,
+  type FormateurEvaluationNoteItem,
   saveEvaluationNotes as persistEvaluationNotes,
   type Formation,
   type FormationSession,
@@ -27,30 +29,10 @@ import {
   Users,
 } from 'lucide-react';
 
-type EvaluationType = 'exam' | 'quiz' | 'practical' | 'project';
-type EvaluationStatus = 'a_venir' | 'en_cours' | 'terminee' | 'corrigee';
-
-interface Evaluation {
-  id: number;
-  titre: string;
-  formation: string;
-  type: EvaluationType;
-  date: string;
-  duree: number;
-  participants: number;
-  corriges: number;
-  status: EvaluationStatus;
-  moyenne?: number | null;
-}
-
-interface NoteApprenant {
-  id: number;
-  apprenant_id: number;
-  apprenant_name: string;
-  note: number | null;
-  commentaire: string;
-  date_soumission: string | null;
-}
+type EvaluationType = FormateurEvaluationItem['type'];
+type EvaluationStatus = FormateurEvaluationItem['status'];
+type Evaluation = FormateurEvaluationItem;
+type NoteApprenant = FormateurEvaluationNoteItem;
 
 interface SessionOption {
   id: number;
