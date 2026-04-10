@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 
 const SETTINGS_TIMEOUT_MS = 5000;
 const ENV_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '';
+const DEFAULT_PROTECTED_FORMS = ['contact', 'login', 'register'];
 
 // Types pour grecaptcha v2
 declare global {
@@ -38,6 +39,16 @@ interface ReCaptchaSettings {
   isLoaded: boolean;
 }
 
+let sharedSettings: ReCaptchaSettings = {
+  isEnabled: !!ENV_SITE_KEY,
+  siteKey: ENV_SITE_KEY,
+  protectedForms: DEFAULT_PROTECTED_FORMS,
+  isLoaded: false,
+};
+
+let sharedSettingsRequest: Promise<void> | null = null;
+const sharedSettingsListeners = new Set<(settings: ReCaptchaSettings) => void>();
+
 function parseProtectedForms(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter((item): item is string => typeof item === 'string');
@@ -52,54 +63,73 @@ function parseProtectedForms(raw: unknown): string[] {
   return [];
 }
 
+function publishSettings(nextSettings: ReCaptchaSettings) {
+  sharedSettings = nextSettings;
+  sharedSettingsListeners.forEach((listener) => listener(sharedSettings));
+}
+
+async function loadSharedSettings() {
+  if (sharedSettingsRequest) {
+    return sharedSettingsRequest;
+  }
+
+  sharedSettingsRequest = (async () => {
+    try {
+      const payload = await api.getPublicSettings();
+      if (!payload) {
+        publishSettings({
+          ...sharedSettings,
+          isLoaded: true,
+        });
+        return;
+      }
+
+      const isEnabled = payload.recaptcha_enabled === true || payload.recaptcha_enabled === '1';
+      const siteKey = payload.recaptcha_site_key || ENV_SITE_KEY;
+      const protectedForms = parseProtectedForms(payload.recaptcha_forms);
+
+      publishSettings({
+        isEnabled: isEnabled && !!siteKey,
+        siteKey,
+        protectedForms: protectedForms.length > 0 ? protectedForms : DEFAULT_PROTECTED_FORMS,
+        isLoaded: true,
+      });
+    } catch {
+      publishSettings({
+        ...sharedSettings,
+        isLoaded: true,
+      });
+    }
+  })();
+
+  return sharedSettingsRequest;
+}
+
 /**
  * Hook pour récupérer les paramètres reCAPTCHA depuis l'API.
  */
 export function useReCaptchaSettings(): ReCaptchaSettings {
-  const [settings, setSettings] = useState<ReCaptchaSettings>({
-    isEnabled: !!ENV_SITE_KEY,
-    siteKey: ENV_SITE_KEY,
-    protectedForms: ['contact', 'login', 'register'],
-    isLoaded: false,
-  });
+  const [settings, setSettings] = useState<ReCaptchaSettings>(sharedSettings);
 
   useEffect(() => {
-    const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      if (!controller.signal.aborted) {
-        controller.abort('recaptcha settings timeout');
-      }
+      publishSettings({
+        ...sharedSettings,
+        isLoaded: true,
+      });
     }, SETTINGS_TIMEOUT_MS);
 
-    const fetchSettings = async () => {
-      try {
-        const payload = await api.getPublicSettings();
-        if (!payload) return;
-
-        const isEnabled = payload.recaptcha_enabled === true || payload.recaptcha_enabled === '1';
-        const siteKey = payload.recaptcha_site_key || ENV_SITE_KEY;
-        const protectedForms = parseProtectedForms(payload.recaptcha_forms);
-
-        setSettings({
-          isEnabled: isEnabled && !!siteKey,
-          siteKey,
-          protectedForms: protectedForms.length > 0 ? protectedForms : ['contact', 'login', 'register'],
-          isLoaded: true,
-        });
-      } catch {
-        if (controller.signal.aborted) return;
-        // La BD est inaccessible, on garde les valeurs par défaut (ENV)
-      } finally {
-        clearTimeout(timeoutId);
-        setSettings((prev) => ({ ...prev, isLoaded: true }));
-      }
+    const handleSettingsChange = (nextSettings: ReCaptchaSettings) => {
+      clearTimeout(timeoutId);
+      setSettings(nextSettings);
     };
 
-    fetchSettings();
+    sharedSettingsListeners.add(handleSettingsChange);
+    void loadSharedSettings().finally(() => clearTimeout(timeoutId));
 
     return () => {
       clearTimeout(timeoutId);
-      if (!controller.signal.aborted) controller.abort('recaptcha settings cleanup');
+      sharedSettingsListeners.delete(handleSettingsChange);
     };
   }, []);
 
@@ -116,7 +146,8 @@ export function ReCaptchaScript() {
 
   return (
     <Script
-      src="https://www.google.com/recaptcha/api.js"
+      id="google-recaptcha-api"
+      src="https://www.google.com/recaptcha/api.js?render=explicit"
       strategy="afterInteractive"
     />
   );
