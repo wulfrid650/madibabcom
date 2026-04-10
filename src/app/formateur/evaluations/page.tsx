@@ -1,37 +1,46 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  ClipboardCheck,
-  Search,
-  Plus,
-  ChevronLeft,
+  api,
+  createEvaluation as createFormateurEvaluation,
+  getEvaluationNotes as fetchEvaluationNotes,
+  getFormateurEvaluations,
+  saveEvaluationNotes as persistEvaluationNotes,
+  type Formation,
+  type FormationSession,
+} from '@/lib/api';
+import {
+  AlertCircle,
   Calendar,
-  Users,
-  FileText,
-  Edit,
-  Trash2,
-  Eye,
   CheckCircle,
+  ChevronLeft,
+  ClipboardCheck,
   Clock,
-  AlertCircle
+  Eye,
+  FileText,
+  Plus,
+  Users,
 } from 'lucide-react';
+
+type EvaluationType = 'exam' | 'quiz' | 'practical' | 'project';
+type EvaluationStatus = 'a_venir' | 'en_cours' | 'terminee' | 'corrigee';
 
 interface Evaluation {
   id: number;
   titre: string;
   formation: string;
-  type: 'examen' | 'tp' | 'projet' | 'quiz';
+  type: EvaluationType;
   date: string;
   duree: number;
   participants: number;
   corriges: number;
-  status: 'a_venir' | 'en_cours' | 'terminee' | 'corrigee';
-  moyenne?: number;
+  status: EvaluationStatus;
+  moyenne?: number | null;
 }
 
 interface NoteApprenant {
@@ -43,45 +52,128 @@ interface NoteApprenant {
   date_soumission: string | null;
 }
 
+interface SessionOption {
+  id: number;
+  formationId: number;
+  formationTitle: string;
+  label: string;
+}
+
+const TYPE_LABELS: Record<EvaluationType, string> = {
+  exam: 'Examen',
+  practical: 'TP',
+  project: 'Projet',
+  quiz: 'Quiz',
+};
+
+function getTypeBadge(type: EvaluationType) {
+  const styles: Record<EvaluationType, string> = {
+    exam: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    practical: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    project: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+    quiz: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+  };
+
+  return (
+    <span className={`px-2 py-1 text-xs font-medium rounded ${styles[type]}`}>
+      {TYPE_LABELS[type]}
+    </span>
+  );
+}
+
+function getStatusBadge(status: EvaluationStatus) {
+  switch (status) {
+    case 'a_venir':
+      return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-full"><Clock className="h-3 w-3" /> À venir</span>;
+    case 'en_cours':
+      return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded-full"><AlertCircle className="h-3 w-3" /> En cours</span>;
+    case 'terminee':
+      return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded-full"><FileText className="h-3 w-3" /> À corriger</span>;
+    case 'corrigee':
+      return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-full"><CheckCircle className="h-3 w-3" /> Corrigée</span>;
+    default:
+      return null;
+  }
+}
+
+function formatSessionLabel(formation: Formation, session: FormationSession): string {
+  const start = new Date(session.start_date).toLocaleDateString('fr-FR');
+  const end = new Date(session.end_date).toLocaleDateString('fr-FR');
+  const parts = [formation.title, `${start} au ${end}`];
+
+  if (session.location) {
+    parts.push(session.location);
+  }
+
+  return parts.join(' • ');
+}
+
 export default function FormateurEvaluationsPage() {
   const router = useRouter();
   const { user, token, hasRole } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [isCreatingEvaluation, setIsCreatingEvaluation] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [formations, setFormations] = useState<Formation[]>([]);
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
   const [notes, setNotes] = useState<NoteApprenant[]>([]);
   const [showNotes, setShowNotes] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [filterStatus, setFilterStatus] = useState('all');
-
+  const [filterStatus, setFilterStatus] = useState<'all' | EvaluationStatus>('all');
   const [newEvaluation, setNewEvaluation] = useState<{
     titre: string;
-    formation: string;
-    type: 'examen' | 'tp' | 'projet' | 'quiz';
+    formation_session_id: string;
+    type: EvaluationType;
     date: string;
     duree: number;
   }>({
     titre: '',
-    formation: 'BIM',
-    type: 'examen',
+    formation_session_id: '',
+    type: 'exam',
     date: '',
     duree: 60,
   });
 
-  const formations = ['BIM', 'Métrage', 'Enscape', 'Twinmotion', 'Assistant Maçon', 'Électroménager'];
+  const sessionOptions = useMemo<SessionOption[]>(() => {
+    return formations.flatMap((formation) =>
+      (formation.sessions || []).map((session) => ({
+        id: session.id,
+        formationId: formation.id,
+        formationTitle: formation.title,
+        label: formatSessionLabel(formation, session),
+      }))
+    );
+  }, [formations]);
 
   const loadEvaluations = useCallback(async () => {
-    setTimeout(() => {
-      setEvaluations([
-        { id: 1, titre: 'Examen BIM - Module 1', formation: 'BIM', type: 'examen', date: '2026-01-15', duree: 120, participants: 12, corriges: 0, status: 'a_venir' },
-        { id: 2, titre: 'TP Modélisation 3D', formation: 'BIM', type: 'tp', date: '2026-01-08', duree: 180, participants: 12, corriges: 8, status: 'terminee', moyenne: 14.2 },
-        { id: 3, titre: 'Quiz Métrage - Calculs', formation: 'Métrage', type: 'quiz', date: '2026-01-10', duree: 30, participants: 8, corriges: 8, status: 'corrigee', moyenne: 15.5 },
-        { id: 4, titre: 'Projet Rendu Enscape', formation: 'Enscape', type: 'projet', date: '2026-01-20', duree: 0, participants: 6, corriges: 0, status: 'a_venir' },
-        { id: 5, titre: 'Examen Final Métrage', formation: 'Métrage', type: 'examen', date: '2026-01-05', duree: 180, participants: 8, corriges: 5, status: 'terminee', moyenne: 13.8 },
-      ]);
-      setIsLoading(false);
-    }, 500);
+    const response = await getFormateurEvaluations(
+      filterStatus === 'all' ? undefined : { status: filterStatus }
+    );
+
+    setEvaluations(Array.isArray(response.data) ? response.data : []);
+  }, [filterStatus]);
+
+  const loadFormations = useCallback(async () => {
+    const response = await api.getFormateurFormations(1, '', '', '');
+    const items = Array.isArray(response.data) ? response.data : [];
+    setFormations(items);
   }, []);
+
+  const loadPageData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      await Promise.all([loadEvaluations(), loadFormations()]);
+    } catch (loadError) {
+      console.error('Error loading evaluations page:', loadError);
+      setError('Impossible de charger les évaluations du formateur.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadEvaluations, loadFormations]);
 
   useEffect(() => {
     if (!token || !user) {
@@ -94,56 +186,107 @@ export default function FormateurEvaluationsPage() {
       return;
     }
 
-    void loadEvaluations();
-  }, [token, user, hasRole, router, loadEvaluations]);
+    void loadPageData();
+  }, [hasRole, loadPageData, router, token, user]);
 
-  const loadNotes = (evaluation: Evaluation) => {
-    setSelectedEvaluation(evaluation);
-    setNotes([
-      { id: 1, apprenant_id: 1, apprenant_name: 'Jean Kouame', note: 15, commentaire: 'Bon travail', date_soumission: '2026-01-08' },
-      { id: 2, apprenant_id: 2, apprenant_name: 'Marie Diallo', note: 17, commentaire: 'Excellent', date_soumission: '2026-01-08' },
-      { id: 3, apprenant_id: 3, apprenant_name: 'Paul Mensah', note: 12, commentaire: 'Peut mieux faire', date_soumission: '2026-01-08' },
-      { id: 4, apprenant_id: 4, apprenant_name: 'Aminata Bah', note: null, commentaire: '', date_soumission: null },
-      { id: 5, apprenant_id: 5, apprenant_name: 'Fatou Ndiaye', note: 14, commentaire: 'Bien', date_soumission: '2026-01-08' },
-    ]);
-    setShowNotes(true);
-  };
+  useEffect(() => {
+    if (!newEvaluation.formation_session_id && sessionOptions.length > 0) {
+      setNewEvaluation((current) => ({
+        ...current,
+        formation_session_id: String(sessionOptions[0].id),
+      }));
+    }
+  }, [newEvaluation.formation_session_id, sessionOptions]);
 
-  const updateNote = (noteId: number, value: number | null, commentaire: string) => {
-    setNotes(notes.map(n =>
-      n.id === noteId ? { ...n, note: value, commentaire } : n
-    ));
-  };
-
-  const filteredEvaluations = evaluations.filter(e =>
-    filterStatus === 'all' || e.status === filterStatus
-  );
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'a_venir':
-        return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-full"><Clock className="h-3 w-3" /> À venir</span>;
-      case 'en_cours':
-        return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded-full"><AlertCircle className="h-3 w-3" /> En cours</span>;
-      case 'terminee':
-        return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded-full"><FileText className="h-3 w-3" /> À corriger</span>;
-      case 'corrigee':
-        return <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-full"><CheckCircle className="h-3 w-3" /> Corrigée</span>;
-      default:
-        return null;
+  const loadNotes = async (evaluation: Evaluation) => {
+    try {
+      setError(null);
+      setNotice(null);
+      setSelectedEvaluation(evaluation);
+      const response = await fetchEvaluationNotes(evaluation.id);
+      setNotes(Array.isArray(response.data) ? response.data : []);
+      setShowNotes(true);
+    } catch (loadError) {
+      console.error('Error loading evaluation notes:', loadError);
+      setError('Impossible de charger les notes de cette évaluation.');
     }
   };
 
-  const getTypeBadge = (type: string) => {
-    const styles: Record<string, string> = {
-      examen: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-      tp: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-      projet: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
-      quiz: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
-    };
-    const labels: Record<string, string> = { examen: 'Examen', tp: 'TP', projet: 'Projet', quiz: 'Quiz' };
-    return <span className={`px-2 py-1 text-xs font-medium rounded ${styles[type]}`}>{labels[type]}</span>;
+  const updateNote = (noteId: number, value: number | null, commentaire: string) => {
+    setNotes((currentNotes) => currentNotes.map((note) =>
+      note.id === noteId ? { ...note, note: value, commentaire } : note
+    ));
   };
+
+  const handleSaveNotes = async () => {
+    if (!selectedEvaluation) {
+      return;
+    }
+
+    try {
+      setIsSavingNotes(true);
+      setError(null);
+      await persistEvaluationNotes(selectedEvaluation.id, notes.map((note) => ({
+        id: note.id,
+        note: note.note,
+        commentaire: note.commentaire,
+      })));
+      setNotice('Les notes ont été enregistrées.');
+      await loadEvaluations();
+      setShowNotes(false);
+    } catch (saveError) {
+      console.error('Error saving evaluation notes:', saveError);
+      setError('Impossible d’enregistrer les notes.');
+    } finally {
+      setIsSavingNotes(false);
+    }
+  };
+
+  const handleCreateEvaluation = async () => {
+    if (!newEvaluation.titre.trim() || !newEvaluation.formation_session_id || !newEvaluation.date) {
+      setError('Le titre, la session et la date sont obligatoires.');
+      return;
+    }
+
+    try {
+      setIsCreatingEvaluation(true);
+      setError(null);
+      await createFormateurEvaluation({
+        titre: newEvaluation.titre.trim(),
+        formation_session_id: Number(newEvaluation.formation_session_id),
+        type: newEvaluation.type,
+        date: newEvaluation.date,
+        duree: newEvaluation.duree > 0 ? newEvaluation.duree : undefined,
+      });
+
+      setNotice('Évaluation créée avec succès.');
+      setShowNewForm(false);
+      setNewEvaluation({
+        titre: '',
+        formation_session_id: sessionOptions[0] ? String(sessionOptions[0].id) : '',
+        type: 'exam',
+        date: '',
+        duree: 60,
+      });
+      await loadEvaluations();
+    } catch (createError) {
+      console.error('Error creating evaluation:', createError);
+      setError('Impossible de créer cette évaluation.');
+    } finally {
+      setIsCreatingEvaluation(false);
+    }
+  };
+
+  const averageLabel = useMemo(() => {
+    const gradedNotes = notes.filter((note) => note.note !== null);
+
+    if (gradedNotes.length === 0) {
+      return '0.0/20';
+    }
+
+    const average = gradedNotes.reduce((sum, note) => sum + (note.note || 0), 0) / gradedNotes.length;
+    return `${average.toFixed(1)}/20`;
+  }, [notes]);
 
   if (isLoading) {
     return (
@@ -156,25 +299,25 @@ export default function FormateurEvaluationsPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
       <div className="max-w-7xl mx-auto px-4">
-        {/* Header */}
         <div className="mb-8">
           <Link href="/formateur/dashboard" className="text-purple-600 hover:underline flex items-center gap-1 mb-4">
             <ChevronLeft className="h-4 w-4" />
             Retour au tableau de bord
           </Link>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
                 <ClipboardCheck className="h-8 w-8 text-purple-500" />
                 Évaluations
               </h1>
               <p className="mt-2 text-gray-600 dark:text-gray-400">
-                Gérez les examens, TP, projets et quiz
+                Gérez les examens, TP, projets et quiz avec les vraies sessions du formateur.
               </p>
             </div>
             <Button
               onClick={() => setShowNewForm(true)}
               className="bg-purple-600 hover:bg-purple-700"
+              disabled={sessionOptions.length === 0}
             >
               <Plus className="h-5 w-5 mr-2" />
               Nouvelle évaluation
@@ -182,18 +325,36 @@ export default function FormateurEvaluationsPage() {
           </div>
         </div>
 
-        {/* Filtres */}
-        <div className="flex gap-2 mb-6">
-          {['all', 'a_venir', 'terminee', 'corrigee'].map((status) => {
-            const labels: Record<string, string> = { all: 'Toutes', a_venir: 'À venir', terminee: 'À corriger', corrigee: 'Corrigées' };
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-900/20 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-900/20 dark:text-emerald-300">
+            {notice}
+          </div>
+        )}
+
+        <div className="flex gap-2 mb-6 flex-wrap">
+          {['all', 'a_venir', 'en_cours', 'terminee', 'corrigee'].map((status) => {
+            const labels: Record<string, string> = {
+              all: 'Toutes',
+              a_venir: 'À venir',
+              en_cours: 'En cours',
+              terminee: 'À corriger',
+              corrigee: 'Corrigées',
+            };
+
             return (
               <button
                 key={status}
-                onClick={() => setFilterStatus(status)}
+                onClick={() => setFilterStatus(status as 'all' | EvaluationStatus)}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === status
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
-                  }`}
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
               >
                 {labels[status]}
               </button>
@@ -201,16 +362,15 @@ export default function FormateurEvaluationsPage() {
           })}
         </div>
 
-        {/* Liste des évaluations */}
         <div className="grid gap-4">
-          {filteredEvaluations.map((evaluation) => (
+          {evaluations.map((evaluation) => (
             <div
               key={evaluation.id}
               className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                       {evaluation.titre}
                     </h3>
@@ -235,7 +395,6 @@ export default function FormateurEvaluationsPage() {
                     </span>
                   </div>
 
-                  {/* Barre de progression correction */}
                   {(evaluation.status === 'terminee' || evaluation.status === 'corrigee') && (
                     <div className="mt-4">
                       <div className="flex items-center justify-between text-sm mb-1">
@@ -245,10 +404,10 @@ export default function FormateurEvaluationsPage() {
                       <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-purple-500 rounded-full transition-all"
-                          style={{ width: `${(evaluation.corriges / evaluation.participants) * 100}%` }}
+                          style={{ width: `${evaluation.participants > 0 ? (evaluation.corriges / evaluation.participants) * 100 : 0}%` }}
                         />
                       </div>
-                      {evaluation.moyenne && (
+                      {typeof evaluation.moyenne === 'number' && (
                         <p className="mt-2 text-sm">
                           Moyenne: <span className="font-semibold text-purple-600">{evaluation.moyenne.toFixed(1)}/20</span>
                         </p>
@@ -257,40 +416,33 @@ export default function FormateurEvaluationsPage() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 ml-4">
+                <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => loadNotes(evaluation)}
+                    onClick={() => void loadNotes(evaluation)}
                   >
                     <Eye className="h-4 w-4 mr-1" />
                     Notes
                   </Button>
-                  <button className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg">
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <button className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        {filteredEvaluations.length === 0 && (
+        {evaluations.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             <ClipboardCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>Aucune évaluation trouvée</p>
           </div>
         )}
 
-        {/* Modal Notes */}
         {showNotes && selectedEvaluation && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
               <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                       Notes - {selectedEvaluation.titre}
@@ -330,7 +482,11 @@ export default function FormateurEvaluationsPage() {
                             max="20"
                             step="0.5"
                             value={note.note ?? ''}
-                            onChange={(e) => updateNote(note.id, e.target.value ? parseFloat(e.target.value) : null, note.commentaire)}
+                            onChange={(event) => updateNote(
+                              note.id,
+                              event.target.value ? parseFloat(event.target.value) : null,
+                              note.commentaire
+                            )}
                             className="w-20 px-2 py-1 text-center border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                             placeholder="-"
                           />
@@ -339,7 +495,7 @@ export default function FormateurEvaluationsPage() {
                           <input
                             type="text"
                             value={note.commentaire}
-                            onChange={(e) => updateNote(note.id, note.note, e.target.value)}
+                            onChange={(event) => updateNote(note.id, note.note, event.target.value)}
                             className="w-full px-2 py-1 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                             placeholder="Ajouter un commentaire..."
                           />
@@ -349,18 +505,20 @@ export default function FormateurEvaluationsPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center gap-4">
                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Moyenne: <span className="font-bold text-purple-600">
-                    {(notes.filter(n => n.note !== null).reduce((sum, n) => sum + (n.note || 0), 0) / notes.filter(n => n.note !== null).length || 0).toFixed(1)}/20
-                  </span>
+                  Moyenne: <span className="font-bold text-purple-600">{averageLabel}</span>
                 </div>
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={() => setShowNotes(false)}>
                     Annuler
                   </Button>
-                  <Button className="bg-purple-600 hover:bg-purple-700">
-                    Enregistrer les notes
+                  <Button
+                    className="bg-purple-600 hover:bg-purple-700"
+                    onClick={() => void handleSaveNotes()}
+                    disabled={isSavingNotes}
+                  >
+                    {isSavingNotes ? 'Enregistrement...' : 'Enregistrer les notes'}
                   </Button>
                 </div>
               </div>
@@ -368,7 +526,6 @@ export default function FormateurEvaluationsPage() {
           </div>
         )}
 
-        {/* Modal Nouvelle Évaluation */}
         {showNewForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-xl max-w-lg w-full">
@@ -383,64 +540,70 @@ export default function FormateurEvaluationsPage() {
                   <input
                     type="text"
                     value={newEvaluation.titre}
-                    onChange={(e) => setNewEvaluation({ ...newEvaluation, titre: e.target.value })}
+                    onChange={(event) => setNewEvaluation((current) => ({ ...current, titre: event.target.value }))}
                     className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     placeholder="Ex: Examen BIM - Module 2"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Formation *</label>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Session *</label>
                     <select
-                      value={newEvaluation.formation}
-                      onChange={(e) => setNewEvaluation({ ...newEvaluation, formation: e.target.value })}
+                      value={newEvaluation.formation_session_id}
+                      onChange={(event) => setNewEvaluation((current) => ({ ...current, formation_session_id: event.target.value }))}
                       className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     >
-                      {formations.map(f => <option key={f} value={f}>{f}</option>)}
+                      {sessionOptions.map((session) => (
+                        <option key={session.id} value={session.id}>
+                          {session.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Type *</label>
                     <select
                       value={newEvaluation.type}
-                      onChange={(e) => setNewEvaluation({ ...newEvaluation, type: e.target.value as 'examen' | 'tp' | 'projet' | 'quiz' })}
+                      onChange={(event) => setNewEvaluation((current) => ({ ...current, type: event.target.value as EvaluationType }))}
                       className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     >
-                      <option value="examen">Examen</option>
-                      <option value="tp">TP</option>
-                      <option value="projet">Projet</option>
+                      <option value="exam">Examen</option>
+                      <option value="practical">TP</option>
+                      <option value="project">Projet</option>
                       <option value="quiz">Quiz</option>
                     </select>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Date *</label>
                     <input
                       type="date"
                       value={newEvaluation.date}
-                      onChange={(e) => setNewEvaluation({ ...newEvaluation, date: e.target.value })}
+                      onChange={(event) => setNewEvaluation((current) => ({ ...current, date: event.target.value }))}
                       className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Durée (min)</label>
-                    <input
-                      type="number"
-                      value={newEvaluation.duree}
-                      onChange={(e) => setNewEvaluation({ ...newEvaluation, duree: parseInt(e.target.value) })}
-                      className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                      placeholder="0 = sans limite"
-                    />
-                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Durée (min)</label>
+                  <input
+                    type="number"
+                    value={newEvaluation.duree}
+                    onChange={(event) => setNewEvaluation((current) => ({ ...current, duree: Number(event.target.value || 0) }))}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="0 = sans limite"
+                  />
                 </div>
               </div>
               <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
                 <Button variant="outline" onClick={() => setShowNewForm(false)}>
                   Annuler
                 </Button>
-                <Button className="bg-purple-600 hover:bg-purple-700">
-                  Créer l&apos;évaluation
+                <Button
+                  className="bg-purple-600 hover:bg-purple-700"
+                  onClick={() => void handleCreateEvaluation()}
+                  disabled={isCreatingEvaluation || sessionOptions.length === 0}
+                >
+                  {isCreatingEvaluation ? 'Création...' : 'Créer l’évaluation'}
                 </Button>
               </div>
             </div>

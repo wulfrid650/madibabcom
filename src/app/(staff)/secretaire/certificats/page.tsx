@@ -7,6 +7,7 @@ export default function SecretaireCertificatsPage() {
   const [requests, setRequests] = useState<SecretariatCertificateRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [formationFilter, setFormationFilter] = useState<string>('all');
@@ -24,6 +25,7 @@ export default function SecretaireCertificatsPage() {
   const fetchRequests = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await api.getSecretaireCertificateRequests({
         search: searchTerm || undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
@@ -32,6 +34,8 @@ export default function SecretaireCertificatsPage() {
       setRequests(response.data || []);
     } catch (error) {
       console.error('Error fetching certificate requests:', error);
+      setRequests([]);
+      setError('Impossible de charger les demandes de certificat.');
     } finally {
       setLoading(false);
     }
@@ -174,6 +178,12 @@ export default function SecretaireCertificatsPage() {
           </select>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-900/20 dark:text-red-300">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center min-h-[320px]">

@@ -1,9 +1,10 @@
 // Admin API Service
 // Connects to Laravel API for admin operations
 
+import { getClientApiBaseUrl } from './api-base-url';
 import { tokenStorage } from './api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_URL = getClientApiBaseUrl();
 
 const getAuthHeaders = (options: { json?: boolean } = {}) => {
   const token = tokenStorage.getToken();

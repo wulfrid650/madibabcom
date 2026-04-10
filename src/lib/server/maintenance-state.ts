@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
+import { resolveBackendApiBaseUrlFromEnv } from './backend-url';
 
 export const HEALTH_CHECK_GRACE_MS = 30 * 60 * 1000;
 const HEALTH_REQUEST_TIMEOUT_MS = 5000;
@@ -44,12 +45,6 @@ interface MaintenanceState {
 const STATE_DIRECTORY = path.join(process.cwd(), '.runtime');
 const STATE_FILE = path.join(STATE_DIRECTORY, 'maintenance-state.json');
 
-function resolveBackendApiBaseUrl() {
-  const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-  const trimmedBaseUrl = rawBaseUrl.replace(/\/+$/, '');
-  return trimmedBaseUrl.endsWith('/api') ? trimmedBaseUrl : `${trimmedBaseUrl}/api`;
-}
-
 const defaultState = (): MaintenanceState => ({
   manual_mode: 'auto',
   manual_message: null,
@@ -65,6 +60,25 @@ const defaultState = (): MaintenanceState => ({
   cached_snapshot: null,
 });
 
+const maintenanceStateStore = globalThis as typeof globalThis & {
+  __mbcMaintenanceState?: MaintenanceState;
+};
+
+function getInMemoryState(): MaintenanceState {
+  if (!maintenanceStateStore.__mbcMaintenanceState) {
+    maintenanceStateStore.__mbcMaintenanceState = defaultState();
+  }
+
+  return maintenanceStateStore.__mbcMaintenanceState;
+}
+
+function setInMemoryState(state: MaintenanceState) {
+  maintenanceStateStore.__mbcMaintenanceState = {
+    ...defaultState(),
+    ...state,
+  };
+}
+
 async function ensureStateDirectory() {
   await mkdir(STATE_DIRECTORY, { recursive: true });
 }
@@ -72,18 +86,31 @@ async function ensureStateDirectory() {
 async function readState(): Promise<MaintenanceState> {
   try {
     const content = await readFile(STATE_FILE, 'utf8');
-    return {
+    const state = {
       ...defaultState(),
       ...JSON.parse(content),
     } as MaintenanceState;
+    setInMemoryState(state);
+    return state;
   } catch {
-    return defaultState();
+    return getInMemoryState();
   }
 }
 
 async function writeState(state: MaintenanceState) {
-  await ensureStateDirectory();
-  await writeFile(STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  const nextState = {
+    ...defaultState(),
+    ...state,
+  };
+
+  setInMemoryState(nextState);
+
+  try {
+    await ensureStateDirectory();
+    await writeFile(STATE_FILE, JSON.stringify(nextState, null, 2), 'utf8');
+  } catch {
+    // Fallback to in-memory state on read-only/serverless filesystems.
+  }
 }
 
 async function fetchJson(url: string) {
@@ -195,7 +222,7 @@ export async function getMaintenanceSnapshot(forceRefresh = false): Promise<Main
     return state.cached_snapshot;
   }
 
-  const backendApiBaseUrl = resolveBackendApiBaseUrl();
+  const backendApiBaseUrl = resolveBackendApiBaseUrlFromEnv();
   const updatedState: MaintenanceState = {
     ...state,
     last_checked_at: new Date(now).toISOString(),
@@ -255,5 +282,5 @@ export async function updateManualMaintenanceMode(
 }
 
 export function getBackendApiBaseUrlForServer() {
-  return resolveBackendApiBaseUrl();
+  return resolveBackendApiBaseUrlFromEnv();
 }

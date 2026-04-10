@@ -4,8 +4,8 @@
   "manual_updated_at": null,
   "manual_updated_by": null,
   "backend_down_since": null,
-  "last_healthy_at": "2026-04-07T12:27:24.044Z",
-  "last_checked_at": "2026-04-07T12:27:24.044Z",
+  "last_healthy_at": "2026-04-10T10:35:48.073Z",
+  "last_checked_at": "2026-04-10T10:35:48.073Z",
   "last_health_status": "healthy",
   "last_health_error": null,
   "backend_maintenance_mode": false,
@@ -17,7 +17,7 @@
     "backend_down_since": null,
     "backend_down_minutes": 0,
     "manual_mode": "auto",
-    "checked_at": "2026-04-07T12:27:24.044Z",
+    "checked_at": "2026-04-10T10:35:48.073Z",
     "can_admin_bypass": true
   }
 }

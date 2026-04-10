@@ -1,7 +1,9 @@
 // Configuration de l'authentification côté client
 // Se connecte à l'API Laravel
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
+import { getClientApiBaseUrl } from './api-base-url';
+
+const API_URL = getClientApiBaseUrl();
 const AUTH_REQUEST_TIMEOUT_MS = 10000;
 
 export type RoleSlug = 'admin' | 'secretaire' | 'apprenant' | 'client' | 'chef_chantier' | 'formateur';

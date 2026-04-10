@@ -248,7 +248,7 @@ export default function FormateurDashboard() {
           </div>
         </div>
 
-        {/* Alertes (Mockées pour l'instant car pas d'API spécifique Alertes, mais dynamique possible plus tard) */}
+        {/* Rappels métier */}
         <div className="mt-8 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
@@ -256,10 +256,12 @@ export default function FormateurDashboard() {
               <h3 className="font-semibold text-amber-800 dark:text-amber-300">Rappels & Notifications</h3>
               <ul className="mt-2 space-y-1 text-sm text-amber-700 dark:text-amber-400">
                 {stats.evaluations_a_venir > 0 && (
-                  <li>• {stats.evaluations_a_venir} évaluations à corriger cette semaine</li>
+                  <li>• {stats.evaluations_a_venir} évaluations planifiées ou à corriger.</li>
                 )}
-                <li>• La réunion pédagogique mensuelle est prévue ce vendredi à 14h.</li>
-                <li>• N'oubliez pas de valider les présences du jour.</li>
+                {stats.cours_cette_semaine > 0 && (
+                  <li>• {stats.cours_cette_semaine} sessions à suivre cette semaine.</li>
+                )}
+                <li>• Pensez à valider les présences de la journée.</li>
               </ul>
             </div>
           </div>

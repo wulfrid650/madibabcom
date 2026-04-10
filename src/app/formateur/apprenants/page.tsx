@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
@@ -45,8 +45,6 @@ export default function FormateurApprenantsPage() {
   const [filterFormation, setFilterFormation] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  const formations = ['BIM', 'Métrage', 'Enscape', 'Twinmotion', 'Assistant Maçon', 'Électroménager'];
-
   useEffect(() => {
     if (!token || !user) {
       router.push('/connexion');
@@ -63,7 +61,7 @@ export default function FormateurApprenantsPage() {
 
   const loadApprenants = async () => {
     try {
-      const response = await getFormateurApprenants({ search: searchTerm, formation: filterFormation !== 'all' ? filterFormation : undefined });
+      const response = await getFormateurApprenants();
       if (response.success) {
         setApprenants(response.data || []);
       }
@@ -73,6 +71,10 @@ export default function FormateurApprenantsPage() {
       setIsLoading(false);
     }
   };
+
+  const formations = useMemo(() => {
+    return Array.from(new Set(apprenants.map((apprenant) => apprenant.formation).filter(Boolean))).sort();
+  }, [apprenants]);
 
   const filteredApprenants = apprenants.filter(apprenant => {
     const matchSearch = apprenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -212,7 +214,9 @@ export default function FormateurApprenantsPage() {
               <div>
                 <p className="text-sm text-gray-500">Moyenne notes</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {(apprenants.reduce((sum, a) => sum + a.notes_moyenne, 0) / apprenants.length).toFixed(1)}/20
+                  {apprenants.length > 0
+                    ? `${(apprenants.reduce((sum, a) => sum + a.notes_moyenne, 0) / apprenants.length).toFixed(1)}/20`
+                    : '0.0/20'}
                 </p>
               </div>
             </div>

@@ -8,18 +8,21 @@
  * @version 2.0.0
  */
 
+import {
+    DEFAULT_LOCAL_API_BASE_URL,
+    getClientApiBaseUrl,
+    isLocalHostname,
+    normalizeApiBaseUrl,
+} from './api-base-url';
+
 // ===========================================
 // Configuration de base
 // ===========================================
 
-const DEFAULT_API_BASE_URL = 'http://localhost:8000/api';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL;
+const DEFAULT_API_BASE_URL = DEFAULT_LOCAL_API_BASE_URL;
+const API_BASE_URL = getClientApiBaseUrl();
 const API_REQUEST_TIMEOUT_MS = 10000;
 const SERVICE_UNAVAILABLE_MESSAGE = 'Service temporairement indisponible';
-
-function normalizeApiBaseUrl(url: string): string {
-    return url.trim().replace(/\/+$/, '');
-}
 
 function pushUniqueApiBaseUrl(candidates: string[], url?: string | null): void {
     if (!url) return;
@@ -33,10 +36,10 @@ function getApiBaseUrlCandidates(primaryBaseUrl?: string): string[] {
 
     pushUniqueApiBaseUrl(candidates, primaryBaseUrl);
     pushUniqueApiBaseUrl(candidates, process.env.NEXT_PUBLIC_API_URL);
-    pushUniqueApiBaseUrl(candidates, DEFAULT_API_BASE_URL);
-    pushUniqueApiBaseUrl(candidates, 'http://127.0.0.1:8000/api');
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLocalHostname(window.location.hostname)) {
+        pushUniqueApiBaseUrl(candidates, DEFAULT_API_BASE_URL);
+        pushUniqueApiBaseUrl(candidates, 'http://127.0.0.1:8000/api');
         const { protocol, hostname } = window.location;
 
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
@@ -46,6 +49,10 @@ function getApiBaseUrlCandidates(primaryBaseUrl?: string): string[] {
         if (hostname.endsWith('.madibabc.local')) {
             pushUniqueApiBaseUrl(candidates, `${protocol}//${hostname}/api`);
         }
+    }
+
+    if (candidates.length === 0) {
+        pushUniqueApiBaseUrl(candidates, DEFAULT_API_BASE_URL);
     }
 
     return candidates;
@@ -1265,7 +1272,6 @@ class ApiClient {
 
     async getFormateurStats(): Promise<FormateurDashboardStats> {
         try {
-            // L'endpoint exact est /formateur/dashboard qui retourne tout
             const response = await this.request<ApiResponse<{
                 stats: any,
                 active_sessions: any[],
@@ -1276,23 +1282,26 @@ class ApiClient {
             const formations = response.data.formations_assignees || [];
 
             return {
-                total_apprenants: stats.total_apprenants,
-                apprenants_actifs: stats.apprenants_actifs,
-                cours_cette_semaine: stats.sessions_en_cours, // Mapping sessions_en_cours -> cours_cette_semaine
-                evaluations_a_venir: stats.evaluations_a_venir,
-                taux_presence_moyen: stats.taux_presence_moyen,
-                formations_assignees: ['BIM', 'Métrage', 'Enscape'],
+                total_apprenants: Number(stats?.total_apprenants || 0),
+                apprenants_actifs: Number(stats?.apprenants_actifs || 0),
+                cours_cette_semaine: Number(stats?.sessions_en_cours || 0),
+                evaluations_a_venir: Number(stats?.evaluations_a_venir || 0),
+                taux_presence_moyen: Number(stats?.taux_presence_moyen || 0),
+                formations_assignees: Array.isArray(formations)
+                    ? formations
+                        .map((formation) => typeof formation === 'string' ? formation : formation?.title)
+                        .filter(Boolean)
+                    : [],
             };
         } catch (error) {
-            console.warn('API Formateur Dashboard non disponible, utilisation données mock temporaires');
-            // Mock temporaire pour ne pas briser l'UI si le backend n'est pas prêt
+            console.warn('API Formateur Dashboard indisponible', error);
             return {
-                total_apprenants: 24,
-                apprenants_actifs: 18,
-                cours_cette_semaine: 8,
-                evaluations_a_venir: 3,
-                taux_presence_moyen: 87,
-                formations_assignees: ['BIM', 'Métrage', 'Enscape'],
+                total_apprenants: 0,
+                apprenants_actifs: 0,
+                cours_cette_semaine: 0,
+                evaluations_a_venir: 0,
+                taux_presence_moyen: 0,
+                formations_assignees: [],
             };
         }
     }
@@ -1300,15 +1309,20 @@ class ApiClient {
     async getFormateurApprenants(limit: number = 5): Promise<TeacherApprenant[]> {
         try {
             const response = await this.request<ApiResponse<TeacherApprenant[]>>(`/formateur/apprenants?limit=${limit}`);
-            return response.data;
+            const items = Array.isArray(response.data) ? response.data : [];
+
+            return items.slice(0, limit).map((item: any) => ({
+                id: item.id,
+                name: item.name,
+                email: item.email,
+                formation: item.formation,
+                progression: Number(item.progression || 0),
+                derniere_presence: item.derniere_presence || item.derniere_connexion || '',
+                avatar: item.avatar,
+            }));
         } catch (error) {
-            console.warn('API Formateur Apprenants non disponible, utilisation données mock temporaires');
-            return [
-                { id: 1, name: 'Jean Kouame', email: 'jean@email.com', formation: 'BIM', progression: 75, derniere_presence: '2026-01-10' },
-                { id: 2, name: 'Marie Diallo', email: 'marie@email.com', formation: 'Métrage', progression: 60, derniere_presence: '2026-01-10' },
-                { id: 3, name: 'Paul Mensah', email: 'paul@email.com', formation: 'BIM', progression: 90, derniere_presence: '2026-01-09' },
-                { id: 4, name: 'Aminata Bah', email: 'aminata@email.com', formation: 'Enscape', progression: 45, derniere_presence: '2026-01-08' },
-            ];
+            console.warn('API Formateur Apprenants indisponible', error);
+            return [];
         }
     }
 
