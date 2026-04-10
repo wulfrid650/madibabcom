@@ -151,7 +151,7 @@ export default function ApprenantRegisterPage() {
           setError(data.message || 'Erreur lors de l\'inscription');
         }
       }
-    } catch (err) {
+    } catch {
       setError('Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.');
     } finally {
       setIsLoading(false);
@@ -360,6 +360,8 @@ export default function ApprenantRegisterPage() {
                 et notre{' '}
                 <Link href="/privacy-policy" className="text-madiba-red hover:underline">politique de confidentialité</Link>.
               </div>
+
+              <ReCaptchaWidget formType="register" onToken={setRecaptchaToken} />
 
               <div className="flex gap-4">
                 <button

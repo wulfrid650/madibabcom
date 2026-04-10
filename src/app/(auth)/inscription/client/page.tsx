@@ -163,7 +163,7 @@ export default function ClientRegisterPage() {
           setError(data.message || 'Erreur lors de l\'inscription');
         }
       }
-    } catch (err) {
+    } catch {
       setError('Erreur de connexion au serveur. Vérifiez que le serveur API est démarré.');
     } finally {
       setIsLoading(false);

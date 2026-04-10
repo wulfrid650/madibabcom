@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 
 const SETTINGS_TIMEOUT_MS = 5000;
+const RECAPTCHA_SCRIPT_ID = 'google-recaptcha-api';
+const RECAPTCHA_SCRIPT_SRC = 'https://www.google.com/recaptcha/api.js?render=explicit';
+const RECAPTCHA_SCRIPT_TIMEOUT_MS = 15000;
+const RECAPTCHA_POLL_INTERVAL_MS = 100;
 const ENV_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '';
 const DEFAULT_PROTECTED_FORMS = ['contact', 'login', 'register'];
 
@@ -47,6 +51,7 @@ let sharedSettings: ReCaptchaSettings = {
 };
 
 let sharedSettingsRequest: Promise<void> | null = null;
+let sharedScriptRequest: Promise<void> | null = null;
 const sharedSettingsListeners = new Set<(settings: ReCaptchaSettings) => void>();
 
 function parseProtectedForms(raw: unknown): string[] {
@@ -66,6 +71,62 @@ function parseProtectedForms(raw: unknown): string[] {
 function publishSettings(nextSettings: ReCaptchaSettings) {
   sharedSettings = nextSettings;
   sharedSettingsListeners.forEach((listener) => listener(sharedSettings));
+}
+
+async function ensureReCaptchaScript(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (window.grecaptcha?.render) {
+    return;
+  }
+
+  if (sharedScriptRequest) {
+    return sharedScriptRequest;
+  }
+
+  sharedScriptRequest = new Promise<void>((resolve, reject) => {
+    let script = document.getElementById(RECAPTCHA_SCRIPT_ID) as HTMLScriptElement | null;
+
+    if (!script) {
+      script = document.createElement('script');
+      script.id = RECAPTCHA_SCRIPT_ID;
+      script.src = RECAPTCHA_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    const startedAt = Date.now();
+
+    const cleanupAndReject = (error: Error) => {
+      sharedScriptRequest = null;
+      reject(error);
+    };
+
+    const waitForGrecaptcha = () => {
+      if (window.grecaptcha?.render) {
+        resolve();
+        return;
+      }
+
+      if (Date.now() - startedAt >= RECAPTCHA_SCRIPT_TIMEOUT_MS) {
+        cleanupAndReject(new Error('Impossible de charger reCAPTCHA.'));
+        return;
+      }
+
+      window.setTimeout(waitForGrecaptcha, RECAPTCHA_POLL_INTERVAL_MS);
+    };
+
+    script.addEventListener('error', () => {
+      cleanupAndReject(new Error('Impossible de charger le script reCAPTCHA.'));
+    }, { once: true });
+
+    waitForGrecaptcha();
+  });
+
+  return sharedScriptRequest;
 }
 
 async function loadSharedSettings() {
@@ -146,8 +207,8 @@ export function ReCaptchaScript() {
 
   return (
     <Script
-      id="google-recaptcha-api"
-      src="https://www.google.com/recaptcha/api.js?render=explicit"
+      id={RECAPTCHA_SCRIPT_ID}
+      src={RECAPTCHA_SCRIPT_SRC}
       strategy="afterInteractive"
     />
   );
@@ -171,10 +232,39 @@ export function ReCaptchaWidget({
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<number | null>(null);
   const renderedRef = useRef(false);
+  const [isScriptReady, setIsScriptReady] = useState(() => (
+    typeof window !== 'undefined' && !!window.grecaptcha?.render
+  ));
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoaded || !isEnabled || !protectedForms.includes(formType) || !siteKey) return;
+
+    let isCancelled = false;
+
+    void ensureReCaptchaScript()
+      .then(() => {
+        if (!isCancelled) {
+          setLoadError(null);
+          setIsScriptReady(true);
+        }
+      })
+      .catch((error) => {
+        console.error('reCAPTCHA script error:', error);
+        if (!isCancelled) {
+          setIsScriptReady(false);
+          setLoadError('La vérification reCAPTCHA n’a pas pu être chargée.');
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [formType, isEnabled, isLoaded, protectedForms, siteKey]);
 
   useEffect(() => {
     if (!isLoaded || !isEnabled || !protectedForms.includes(formType)) return;
-    if (!siteKey || !containerRef.current || renderedRef.current) return;
+    if (!siteKey || !containerRef.current || renderedRef.current || !isScriptReady) return;
 
     const render = () => {
       if (!containerRef.current || renderedRef.current) return;
@@ -207,7 +297,7 @@ export function ReCaptchaWidget({
       }, 200);
       return () => clearInterval(interval);
     }
-  }, [isLoaded, isEnabled, siteKey, protectedForms, formType, theme, onToken]);
+  }, [isLoaded, isEnabled, isScriptReady, siteKey, protectedForms, formType, theme, onToken]);
 
   // Réinitialiser si le composant se remonte
   useEffect(() => {
@@ -221,7 +311,17 @@ export function ReCaptchaWidget({
   if (!isEnabled || !protectedForms.includes(formType)) return null;
 
   return (
-    <div className="flex justify-center my-2">
+    <div className="my-2 space-y-2">
+      {!isScriptReady && !loadError && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+          Chargement de la vérification reCAPTCHA...
+        </div>
+      )}
+      {loadError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          {loadError}
+        </div>
+      )}
       <div ref={containerRef} />
     </div>
   );
