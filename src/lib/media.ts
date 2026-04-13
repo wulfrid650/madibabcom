@@ -35,11 +35,11 @@ export function resolveMediaUrl(input?: string | null): string {
   const appBase = `${origin}${basePath}`;
 
   if (value.startsWith('/storage/')) {
-    return `${appBase}${value}`;
+    return `${appBase}/public${value}`;
   }
 
   if (value.startsWith('storage/')) {
-    return `${appBase}/${value}`;
+    return `${appBase}/public/${value}`;
   }
 
   // Legacy seeded values like /images/portfolio/file.jpg are now stored under /storage/portfolio.
