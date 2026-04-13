@@ -28,6 +28,11 @@ export function resolveMediaUrl(input?: string | null): string {
   }
 
   if (/^https?:\/\//i.test(value)) {
+    const { origin } = getApiOriginAndBasePath();
+    // Inject /public if it's the backend URL and missing it
+    if (value.startsWith(origin) && value.includes('/storage/') && !value.includes('/public/storage/')) {
+      return value.replace('/storage/', '/public/storage/');
+    }
     return value;
   }
 

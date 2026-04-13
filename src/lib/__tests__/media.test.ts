@@ -40,6 +40,14 @@ describe('resolveMediaUrl', () => {
     expect(resolveMediaUrl('blob:http://localhost/file')).toBe('blob:http://localhost/file');
   });
 
+  it('rewrites absolute storage urls from the backend to include /public', async () => {
+    const { resolveMediaUrl } = await loadMediaModule('https://api.mbc.test/api');
+    
+    expect(resolveMediaUrl('https://api.mbc.test/storage/portfolio/rr.jpg')).toBe('https://api.mbc.test/public/storage/portfolio/rr.jpg');
+    expect(resolveMediaUrl('https://api.mbc.test/public/storage/portfolio/rr.jpg')).toBe('https://api.mbc.test/public/storage/portfolio/rr.jpg');
+    expect(resolveMediaUrl('https://s3.amazonaws.com/storage/file.jpg')).toBe('https://s3.amazonaws.com/storage/file.jpg');
+  });
+
   it('resolves storage paths against the backend origin', async () => {
     const { resolveMediaUrl } = await loadMediaModule('https://api.mbc.test/api');
 
