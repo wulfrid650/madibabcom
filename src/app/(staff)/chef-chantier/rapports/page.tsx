@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Loader2, Plus, Search, Upload, X } from 'lucide-react';
 import { api, ChefChantierReport, PortfolioProject } from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/media';
 
 type ReportFormState = {
   chantier_id: string;
@@ -214,7 +215,7 @@ export default function RapportsPage() {
                   <td className="whitespace-nowrap px-6 py-4 text-sm font-medium">
                     {report.file_url ? (
                       <a
-                        href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}${report.file_url}`}
+                        href={resolveMediaUrl(report.file_url)}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center text-amber-600 transition-colors hover:text-amber-800"

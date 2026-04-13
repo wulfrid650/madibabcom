@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import * as adminApi from '@/lib/admin-api'; // Import adminApi
+import { resolveMediaUrl } from '@/lib/media';
 import {
   FileText,
   Download,
@@ -491,7 +492,7 @@ export default function ReportsPage() {
                         </div>
                       </div>
                       <a
-                        href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/storage/${report.file_path}`}
+                        href={resolveMediaUrl(`/storage/${report.file_path}`)}
                         target="_blank"
                         rel="noreferrer"
                         className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -552,7 +553,7 @@ export default function ReportsPage() {
                     </div>
                   </div>
                   <a
-                    href={`${process.env.NEXT_PUBLIC_API_URL}/storage/${report.file_path}`}
+                    href={resolveMediaUrl(`/storage/${report.file_path}`)}
                     target="_blank"
                     rel="noreferrer"
                     className="p-2 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
