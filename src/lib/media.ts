@@ -44,7 +44,7 @@ export function resolveMediaUrl(input?: string | null): string {
 
   // Legacy seeded values like /images/portfolio/file.jpg are now stored under /storage/portfolio.
   if (value.startsWith('/images/portfolio/')) {
-    return `${appBase}/storage/portfolio/${value.split('/').pop()}`;
+    return `${appBase}/public/storage/portfolio/${value.split('/').pop()}`;
   }
 
   if (value.startsWith('/')) {

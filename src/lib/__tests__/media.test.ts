@@ -43,15 +43,15 @@ describe('resolveMediaUrl', () => {
   it('resolves storage paths against the backend origin', async () => {
     const { resolveMediaUrl } = await loadMediaModule('https://api.mbc.test/api');
 
-    expect(resolveMediaUrl('/storage/quotes/file.pdf')).toBe('https://api.mbc.test/storage/quotes/file.pdf');
-    expect(resolveMediaUrl('storage/quotes/file.pdf')).toBe('https://api.mbc.test/storage/quotes/file.pdf');
+    expect(resolveMediaUrl('/storage/quotes/file.pdf')).toBe('https://api.mbc.test/public/storage/quotes/file.pdf');
+    expect(resolveMediaUrl('storage/quotes/file.pdf')).toBe('https://api.mbc.test/public/storage/quotes/file.pdf');
     expect(resolveMediaUrl('quotes/file.pdf')).toBe('https://api.mbc.test/quotes/file.pdf');
   });
 
   it('rewrites legacy portfolio image paths to storage portfolio paths', async () => {
     const { resolveMediaUrl } = await loadMediaModule('https://api.mbc.test/api');
 
-    expect(resolveMediaUrl('/images/portfolio/projet-1.jpg')).toBe('https://api.mbc.test/storage/portfolio/projet-1.jpg');
+    expect(resolveMediaUrl('/images/portfolio/projet-1.jpg')).toBe('https://api.mbc.test/public/storage/portfolio/projet-1.jpg');
   });
 
   it('keeps application absolute paths untouched', async () => {
